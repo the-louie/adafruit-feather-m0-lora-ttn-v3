@@ -237,18 +237,18 @@ void setup() {
   pinMode(STRAP_PIN, INPUT_PULLUP);
   delay(100); // Longer delay to ensure pull-up is stable
 
-  // Read the strap.
+  // Intervals: same for both modes — 5 min measure, 15 min transmit (3 readings per batch)
+  sleepIntervalSeconds = 300;
+  batchTarget = 3;
+
+  // Read the strap: only runMode and FPort differ
   // LOW = Connected to GND (Development)
   // HIGH = Floating (Production)
   if (digitalRead(STRAP_PIN) == LOW) {
     runMode = 1; // DEV
-    sleepIntervalSeconds = 60;
-    batchTarget = 5;
     currentFPort = 10;
   } else {
     runMode = 0; // PROD
-    sleepIntervalSeconds = 900;
-    batchTarget = 4;
     currentFPort = 20;
   }
 
