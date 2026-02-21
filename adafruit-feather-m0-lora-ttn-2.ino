@@ -118,11 +118,12 @@ void onEvent(ev_t ev) {
     logPrintln(F("EV_JOINED"));
     LMIC_setLinkCheckMode(0);
     LMIC_setDrTxpow(5, 14);
-
-    // Visual Confirmation: 3 fast blinks = Success
-    for(int i=0; i<10; i++) {
-        digitalWrite(LED_PIN, HIGH); delay(100);
-        digitalWrite(LED_PIN, LOW);  delay(100);
+    // Join accepted: 5 rapid blinks
+    for (int i = 0; i < 5; i++) {
+      digitalWrite(LED_PIN, HIGH);
+      delay(50);
+      digitalWrite(LED_PIN, LOW);
+      delay(50);
     }
     break;
   case EV_JOIN_FAILED:
@@ -251,20 +252,11 @@ void setup() {
     currentFPort = 20;
   }
 
-  // 3. Mode Feedback (So you know it worked before you walk away)
+  // 3. Start feedback: LED on 1s (both modes)
   pinMode(LED_PIN, OUTPUT);
-  if (runMode == 0) {
-    // PROD: 3 seconds solid LED
-    digitalWrite(LED_PIN, HIGH);
-    delay(3000);
-    digitalWrite(LED_PIN, LOW);
-  } else {
-    // DEV: 10 fast flashes
-    for(int i=0; i<10; i++) {
-      digitalWrite(LED_PIN, HIGH); delay(50);
-      digitalWrite(LED_PIN, LOW);  delay(50);
-    }
-  }
+  digitalWrite(LED_PIN, HIGH);
+  delay(1000);
+  digitalWrite(LED_PIN, LOW);
 
   // 4. USB Management
   if (runMode == 0) {
