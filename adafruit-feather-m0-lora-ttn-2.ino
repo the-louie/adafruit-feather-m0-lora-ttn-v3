@@ -58,6 +58,7 @@ static uint8_t currentFPort;
 static volatile bool txComplete = false;
 static uint8_t wakeCounter = 0; // Sequence tracker
 static uint32_t joinAttemptStart = 0;
+static bool joinSuccessBlinkPending = false;
 
 // Batch buffer: newest at index 0. Each entry 2 bytes (int16)
 static uint8_t ramCount = 0;
@@ -118,13 +119,7 @@ void onEvent(ev_t ev) {
     logPrintln(F("EV_JOINED"));
     LMIC_setLinkCheckMode(0);
     LMIC_setDrTxpow(5, 14);
-    // Join accepted: 5 rapid blinks
-    for (int i = 0; i < 5; i++) {
-      digitalWrite(LED_PIN, HIGH);
-      delay(50);
-      digitalWrite(LED_PIN, LOW);
-      delay(50);
-    }
+    joinSuccessBlinkPending = true; // Blink in loop() to avoid delay() inside LMIC callback
     break;
   case EV_JOIN_FAILED:
     logPrintln(F("EV_JOIN_FAILED"));
@@ -157,14 +152,14 @@ void readAndBufferSensors() {
   // Start from the end of the active buffer and move backwards
   int maxIndex = (ramCount >= batchTarget) ? (batchTarget - 1) : ramCount;
   for (int i = maxIndex; i > 0; i--) {
-      dataBuffer[i] = dataBuffer[i - 1];
+    dataBuffer[i] = dataBuffer[i - 1];
   }
 
   // Prepend newest reading at the front
   dataBuffer[0] = encodedTemp;
 
   if (ramCount < batchTarget) {
-      ramCount++;
+    ramCount++;
   }
   wakeCounter++;
 
@@ -212,19 +207,19 @@ void transmitBatchAndWait() {
   // Blocking wait for EV_TXCOMPLETE (with 2-minute safety timeout)
   uint32_t waitStart = millis();
   while (!txComplete && (millis() - waitStart < 120000UL)) {
-  os_runloop_once();
+    os_runloop_once();
   }
 
   // If we broke out due to timeout, force a MAC reset to clear the hung radio state
   if (!txComplete) {
-      logPrintln(F("FATAL: TX Timeout. Forcing MAC reset."));
-      LMIC_reset();
-      // Restore the 5% clock error that LMIC_reset just wiped
-      LMIC_setClockError((uint32_t)MAX_CLOCK_ERROR * 5 / 100);
+    logPrintln(F("FATAL: TX Timeout. Forcing MAC reset."));
+    LMIC_reset();
+    LMIC_setClockError((uint32_t)MAX_CLOCK_ERROR * 5 / 100); // Restore after LMIC_reset
   }
 
   digitalWrite(LED_PIN, LOW);
-  ramCount = 0; // Clear buffer after successful send
+  if (txComplete)
+    ramCount = 0; // Clear buffer only after successful send; on timeout we retry next cycle
 }
 
 void setup() {
@@ -237,19 +232,18 @@ void setup() {
   pinMode(STRAP_PIN, INPUT_PULLUP);
   delay(100); // Longer delay to ensure pull-up is stable
 
-  // Intervals: same for both modes — 5 min measure, 15 min transmit (3 readings per batch)
+  // Intervals and FPort: same for both modes — 5 min measure, 15 min transmit (3 readings per batch)
   sleepIntervalSeconds = 300;
   batchTarget = 3;
+  currentFPort = 10;
 
-  // Read the strap: only runMode and FPort differ
+  // Read the strap: only runMode differs (USB/Serial, join timeout, sleep path still vary by mode)
   // LOW = Connected to GND (Development)
   // HIGH = Floating (Production)
   if (digitalRead(STRAP_PIN) == LOW) {
     runMode = 1; // DEV
-    currentFPort = 10;
   } else {
     runMode = 0; // PROD
-    currentFPort = 20;
   }
 
   // 3. Start feedback: LED on 1s (both modes)
@@ -289,14 +283,23 @@ void loop() {
 
     // 2. Check: Has it been more than 3 minutes SINCE we started this attempt?
     if (runMode == 0 && (millis() - joinAttemptStart > 180000UL)) {
-        joinAttemptStart = 0; // Reset for next time
-        LowPower.deepSleep(900000);
-        NVIC_SystemReset(); // Start fresh
+      joinAttemptStart = 0; // Reset for next time
+      LowPower.deepSleep(900000);
+      NVIC_SystemReset(); // Start fresh
     }
     return;
   }
 
   // STATE 2: Operational
+  if (joinSuccessBlinkPending) {
+    joinSuccessBlinkPending = false;
+    for (int i = 0; i < 5; i++) {
+      digitalWrite(LED_PIN, HIGH);
+      delay(50);
+      digitalWrite(LED_PIN, LOW);
+      delay(50);
+    }
+  }
   readAndBufferSensors();
 
   // "FAST-FLUSH" LOGIC:
@@ -316,14 +319,14 @@ void loop() {
   if (runMode == 1) Serial.flush();
 
   if (runMode == 1) {
-      // DEV MODE: Cannot use deepSleep while USB is active. Use a non-blocking wait.
-      uint32_t waitStart = millis();
-      while (millis() - waitStart < (sleepIntervalSeconds * 1000UL)) {
-          delay(10); // Small delay keeps watchdog happy and lowers heat
-      }
+    // DEV MODE: Cannot use deepSleep while USB is active. Use a non-blocking wait.
+    uint32_t waitStart = millis();
+    while (millis() - waitStart < (sleepIntervalSeconds * 1000UL)) {
+      delay(10); // Small delay keeps watchdog happy and lowers heat
+    }
   } else {
-      // PROD MODE: True hardware deep sleep.
-      LowPower.deepSleep(sleepIntervalSeconds * 1000UL);
+    // PROD MODE: True hardware deep sleep.
+    LowPower.deepSleep(sleepIntervalSeconds * 1000UL);
   }
 
   logPrintln(F("Woke up!"));
