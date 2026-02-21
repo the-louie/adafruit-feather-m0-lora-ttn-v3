@@ -29,7 +29,7 @@
 
 // Safely size the buffer to the protocol maximum to prevent future memmove
 // overflows
-#define MAX_BATCH 43
+#define MAX_BATCH 6
 
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
@@ -56,7 +56,7 @@ static uint32_t sleepIntervalSeconds;
 static uint8_t batchTarget;
 static uint8_t currentFPort;
 static volatile bool txComplete = false;
-static uint8_t wakeCounter = 0; // Sequence tracker
+static uint8_t wakeCounter; // 4-bit sequence 0..15 for protocol; set to 0 in setup()
 static uint32_t joinAttemptStart = 0;
 static bool joinSuccessBlinkPending = false;
 
@@ -92,20 +92,19 @@ const lmic_pinmap lmic_pins = {
     .dio = {3, 6, LMIC_UNUSED_PIN},
 };
 
-// Helper to encode temperature
-static uint16_t encodeTemperature(float tempC) {
-  if (tempC < -50.0f || tempC != tempC)
-    return 0xFFFFu;
-  if (tempC < 0.0f)
-    return 0xFFFEu;
+// Returns raw centidegrees -1000..3000 (-10°C..+30°C), or sentinels: 0xFFFF invalid/NaN,
+// values < -10°C → too cold (251), > +30°C → too warm (252). Used for 8-byte protocol.
+static int16_t encodeTemperature(float tempC) {
+  if (tempC != tempC || tempC < -50.0f)
+    return (int16_t)0xFFFF;
+  if (tempC < -10.0f)
+    return (int16_t)0xFFFE; // too cold → 251
   if (tempC > 30.0f)
-    return 0xFFFDu;
+    return (int16_t)0xFFFD; // too warm → 252
   int v = (int)(tempC * 100.0f);
-  if (v > 3000)
-    v = 3000;
-  if (v < 0)
-    v = 0;
-  return (uint16_t)v;
+  if (v > 3000) v = 3000;
+  if (v < -1000) v = -1000;
+  return (int16_t)v;
 }
 
 void onEvent(ev_t ev) {
@@ -146,22 +145,18 @@ void onEvent(ev_t ev) {
 void readAndBufferSensors() {
   sensors.requestTemperatures();
   float tempC = sensors.getTempCByIndex(0);
-  uint16_t encodedTemp = encodeTemperature(tempC);
+  int16_t encodedTemp = encodeTemperature(tempC);
 
-  // Safely shift all existing data to the right by 1 position
-  // Start from the end of the active buffer and move backwards
-  int maxIndex = (ramCount >= batchTarget) ? (batchTarget - 1) : ramCount;
-  for (int i = maxIndex; i > 0; i--) {
+  // Shift right by 1; only indices 1..5 (never 6) to avoid buffer overrun
+  for (int i = 5; i > 0; i--) {
     dataBuffer[i] = dataBuffer[i - 1];
   }
-
-  // Prepend newest reading at the front
-  dataBuffer[0] = encodedTemp;
+  dataBuffer[0] = (uint16_t)encodedTemp;
 
   if (ramCount < batchTarget) {
     ramCount++;
   }
-  wakeCounter++;
+  wakeCounter = (wakeCounter + 1) & 0x0F; // 4-bit sequence for protocol compatibility
 
   // Explicitly log the reading and buffer status
   logPrint(F("--> Measured Temp: "));
@@ -178,31 +173,43 @@ void transmitBatchAndWait() {
     return;
   }
 
-  uint16_t vbatCentivolts = (uint16_t)(VBAT_VOLTS() * 100.0f);
-  const size_t payloadLen = 4 + (size_t)ramCount * 2;
-  static uint8_t payload[4 + MAX_BATCH * 2];
+  // Protocol V5: 8 bytes. Byte 0 = offset>>4; byte 1 = (offset&0x0F)<<4 | (wakeCounter&0x0F). Bytes 2-7 = 6 temps: 250 null, 251 too cold, 252 too warm, else (centidegrees/100+10)/0.2.
+  static uint8_t payload[8];
+  uint32_t vbat_mv = (uint32_t)(VBAT_VOLTS() * 1000.0f);
+  int32_t offset = (int32_t)vbat_mv - 3000;
+  if (offset < 0) offset = 0;
+  if (offset > 4095) offset = 4095;
+  uint16_t uoffset = (uint16_t)offset;
+  payload[0] = (uint8_t)(uoffset >> 4);
+  payload[1] = (uint8_t)(((uoffset & 0x0FU) << 4) | (wakeCounter & 0x0FU));
 
-  // Header (Big Endian format)
-  payload[0] = (uint8_t)(vbatCentivolts >> 8);
-  payload[1] = (uint8_t)(vbatCentivolts & 0xFF);
-  payload[2] = runMode;     // Flags (0 = PROD, 1 = DEV)
-  payload[3] = wakeCounter; // Sequence
-
-  // Temperature Array (Big Endian format)
-  for (uint8_t i = 0; i < ramCount; i++) {
-    payload[4 + i * 2] = (uint8_t)(dataBuffer[i] >> 8);
-    payload[4 + i * 2 + 1] = (uint8_t)(dataBuffer[i] & 0xFF);
+  for (uint8_t i = 0; i < 6; i++) {
+    if (i >= ramCount) {
+      payload[2 + i] = 250;
+      continue;
+    }
+    uint16_t raw = dataBuffer[i];
+    if (raw == 0xFFFFu) {
+      payload[2 + i] = 250;
+    } else if (raw == 0xFFFEu) {
+      payload[2 + i] = 251;
+    } else if (raw == 0xFFFDu) {
+      payload[2 + i] = 252;
+    } else {
+      float degC = (int16_t)raw / 100.0f;
+      if (degC < -10.0f) payload[2 + i] = 251;
+      else if (degC > 30.0f) payload[2 + i] = 252;
+      else payload[2 + i] = (uint8_t)((degC + 10.0f) / 0.2f + 0.5f);
+    }
   }
 
-  // We slept physically, but LMIC time was frozen.
-  // Force reset the duty cycle trackers to 0 so it doesn't illegally block us.
   LMIC.globalDutyAvail = 0;
   for (int i = 0; i < MAX_BANDS; i++) {
     LMIC.bands[i].avail = 0;
   }
   digitalWrite(LED_PIN, HIGH);
   txComplete = false;
-  LMIC_setTxData2(currentFPort, payload, (uint8_t)payloadLen, 0);
+  LMIC_setTxData2(currentFPort, payload, 8, 0);
 
   // Blocking wait for EV_TXCOMPLETE (with 2-minute safety timeout)
   uint32_t waitStart = millis();
@@ -232,10 +239,10 @@ void setup() {
   pinMode(STRAP_PIN, INPUT_PULLUP);
   delay(100); // Longer delay to ensure pull-up is stable
 
-  // Intervals and FPort: same for both modes — 5 min measure, 15 min transmit (3 readings per batch)
   sleepIntervalSeconds = 300;
-  batchTarget = 3;
-  currentFPort = 10;
+  batchTarget = 6;
+  wakeCounter = 0;
+  ramCount = 0;
 
   // Read the strap: only runMode differs (USB/Serial, join timeout, sleep path still vary by mode)
   // LOW = Connected to GND (Development)
@@ -245,6 +252,7 @@ void setup() {
   } else {
     runMode = 0; // PROD
   }
+  currentFPort = (runMode == 0) ? 10 : 20; // 10 = PROD, 20 = DEV
 
   // 3. Start feedback: LED on 1s (both modes)
   pinMode(LED_PIN, OUTPUT);
