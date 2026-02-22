@@ -17,7 +17,7 @@ function decodeUplink(input) {
   const fPort = input.fPort;
 
   const offset = (bytes[0] << 4) | (bytes[1] >> 4);
-  data.battery_voltage = Number(((offset + 3000) / 1000).toFixed(3));
+  data.battery_v = Number(((offset + 3000) / 1000).toFixed(3));
   data.sequence = bytes[1] & 0x0f;
   data.rebootDetected = (data.sequence === 0);
   data.version = 5;
