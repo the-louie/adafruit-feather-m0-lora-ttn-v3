@@ -26,11 +26,14 @@ function decodeUplink(input) {
   data.temperatures = [];
   for (let i = 2; i < 8; i++) {
     const v = bytes[i];
-    if (v === 250) data.temperatures.push(null);
-    else if (v === 251) data.temperatures.push("< -10");
+
+    // Only push to the array if it's NOT a null value (250)
+    if (v === 251) data.temperatures.push("< -10");
     else if (v === 252) data.temperatures.push("> +30");
-    else if (v <= 200) data.temperatures.push(Number(((v * 0.2) - 10).toFixed(1)));
-    else data.temperatures.push("ERR");
+    else if (v <= 200) {
+      data.temperatures.push(Number(((v * 0.2) - 10).toFixed(1)));
+    }
+    // Note: v === 250 is simply ignored now, filtering the nulls.
   }
 
   return { data, warnings, errors };

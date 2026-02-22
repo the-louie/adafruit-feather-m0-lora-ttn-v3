@@ -143,7 +143,9 @@ void onEvent(ev_t ev) {
 }
 
 void readAndBufferSensors() {
+  // In readAndBufferSensors()
   sensors.requestTemperatures();
+  delay(750); // Add this: Dallas sensors need time to convert at 12-bit resolution
   float tempC = sensors.getTempCByIndex(0);
   int16_t encodedTemp = encodeTemperature(tempC);
 
