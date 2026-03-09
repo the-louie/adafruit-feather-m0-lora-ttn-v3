@@ -179,8 +179,15 @@ void onEvent(ev_t ev) {
 void readAndBufferSensors() {
   sensors.requestTemperatures();
 
-  // Put CPU into low power idle during Dallas conversion
-  LowPower.idle(750);
+  // PROD: USB detached; low-power idle during Dallas conversion. DEV: keep USB and LMIC alive with os_runloop_once().
+  if (runMode == 0) {
+    LowPower.idle(750);
+  } else {
+    uint32_t startWait = millis();
+    while (millis() - startWait < 750) {
+      os_runloop_once();
+    }
+  }
 
   float tempC = sensors.getTempCByIndex(0);
   lastTempC = tempC;
