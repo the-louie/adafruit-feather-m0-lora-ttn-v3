@@ -21,7 +21,15 @@
 #include <hal/hal.h>
 
 #define VBATPIN A7
-#define VBAT_VOLTS() (analogRead(VBATPIN) * (2.0f * 3.3f / 1024.0f))
+
+// Two dummy reads let the SAMD21 ADC sampling capacitor settle through the 100k/100k divider.
+static float getBatteryVoltage(void) {
+  analogRead(VBATPIN);
+  analogRead(VBATPIN);
+  return analogRead(VBATPIN) * (2.0f * 3.3f / 1024.0f);
+}
+
+#define VBAT_VOLTS() getBatteryVoltage()
 
 #define STRAP_PIN 11
 #define LED_PIN 13
