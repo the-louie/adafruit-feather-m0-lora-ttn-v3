@@ -178,7 +178,10 @@ void onEvent(ev_t ev) {
 
 void readAndBufferSensors() {
   sensors.requestTemperatures();
-  delay(750); // Dallas sensors need time to convert at 12-bit resolution
+
+  // Put CPU into low power idle during Dallas conversion
+  LowPower.idle(750);
+
   float tempC = sensors.getTempCByIndex(0);
   lastTempC = tempC;
   int16_t encodedTemp = encodeTemperature(tempC);
