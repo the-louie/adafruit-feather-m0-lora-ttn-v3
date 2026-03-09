@@ -186,6 +186,7 @@ void readAndBufferSensors() {
     uint32_t startWait = millis();
     while (millis() - startWait < 750) {
       os_runloop_once();
+      delay(1); // Small delay to prevent watchdog resets
     }
   }
 
@@ -302,7 +303,9 @@ void transmitBatchAndWait() {
     }
   }
 
-  digitalWrite(LED_PIN, HIGH);
+  if (runMode == 1) {
+    digitalWrite(LED_PIN, HIGH);
+  }
   txComplete = false;
   LMIC_setTxData2(currentFPort, payload, 9, 0);
 
@@ -318,7 +321,9 @@ void transmitBatchAndWait() {
     LMIC_clrTxData();
   }
 
-  digitalWrite(LED_PIN, LOW);
+  if (runMode == 1) {
+    digitalWrite(LED_PIN, LOW);
+  }
   if (txComplete) {
     float vbat_volts = (float)vbat_mv / 1000.0f;
     uint8_t nextIndex = calculate_interval_index(lastTempC, vbat_volts);
@@ -408,11 +413,16 @@ void loop() {
     for (int i = 0; i < 5; i++) {
       digitalWrite(LED_PIN, HIGH);
       uint32_t t = millis();
-      while (millis() - t < 50) os_runloop_once();
-
+      while (millis() - t < 50) {
+        os_runloop_once();
+        delay(1); // Small delay to prevent watchdog resets
+      }
       digitalWrite(LED_PIN, LOW);
       t = millis();
-      while (millis() - t < 50) os_runloop_once();
+      while (millis() - t < 50) {
+        os_runloop_once();
+        delay(1); // Small delay to prevent watchdog resets
+      }
     }
   }
   readAndBufferSensors();
@@ -434,10 +444,11 @@ void loop() {
   if (runMode == 1) Serial.flush();
 
   if (runMode == 1) {
-    // DEV MODE: Cannot use deepSleep while USB is active. Use a non-blocking wait.
+    // DEV MODE: Keep the LMIC stack running while simulating a sleep period
     uint32_t waitStart = millis();
     while (millis() - waitStart < (sleepIntervalSeconds * 1000UL)) {
-      delay(10); // Small delay keeps watchdog happy and lowers heat
+      os_runloop_once();
+      delay(1); // Small delay to prevent watchdog resets
     }
   } else {
     // PROD MODE: True hardware deep sleep.
