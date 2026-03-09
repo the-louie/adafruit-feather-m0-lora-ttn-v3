@@ -55,10 +55,16 @@ static const u1_t PROGMEM APPKEY[16] = {0x79, 0x87, 0x8E, 0x16, 0x19, 0xDA, 0xF4
 
 void os_getDevKey(u1_t *buf) { memcpy_P(buf, APPKEY, 16); }
 
+// Interval index table: 0 = unused (5 min default if ever read), 1-10 = 1,5,15,30,60,120,360,720,1440,10080 minutes (in seconds)
+static const uint32_t kIntervalSecondsByIndex[11] = {
+    300, 60, 300, 900, 1800, 3600, 7200, 21600, 43200, 86400, 604800
+};
+
 // Application state (set once in setup from STRAP_PIN)
 static uint8_t runMode; // 0 = PROD, 1 = DEV
 static uint32_t sleepIntervalSeconds;
 static uint8_t batchTarget;
+static uint8_t currentIntervalIndex; // 0-10; only updated in setup() and after successful TX (e.g. future downlink)
 static uint8_t currentFPort;
 static volatile bool txComplete = false;
 static uint8_t wakeCounter; // 4-bit sequence 0..15 for protocol; set to 0 in setup()
@@ -98,7 +104,7 @@ const lmic_pinmap lmic_pins = {
 };
 
 // Returns raw centidegrees -1000..3000 (-10°C..+30°C), or sentinels: 0xFFFF invalid/NaN,
-// values < -10°C → too cold (251), > +30°C → too warm (252). Used for 8-byte protocol.
+// values < -10°C → too cold (251), > +30°C → too warm (252). Used for 9-byte protocol.
 static int16_t encodeTemperature(float tempC) {
   if (tempC != tempC || tempC < -50.0f)
     return (int16_t)0xFFFF;
@@ -148,9 +154,8 @@ void onEvent(ev_t ev) {
 }
 
 void readAndBufferSensors() {
-  // In readAndBufferSensors()
   sensors.requestTemperatures();
-  delay(750); // Add this: Dallas sensors need time to convert at 12-bit resolution
+  delay(750); // Dallas sensors need time to convert at 12-bit resolution
   float tempC = sensors.getTempCByIndex(0);
   int16_t encodedTemp = encodeTemperature(tempC);
 
@@ -180,33 +185,36 @@ void transmitBatchAndWait() {
     return;
   }
 
-  // Protocol V5: 8 bytes. Byte 0 = offset>>4; byte 1 = (offset&0x0F)<<4 | (wakeCounter&0x0F). Bytes 2-7 = 6 temps: 250 null, 251 too cold, 252 too warm, else (centidegrees/100+10)/0.2.
-  static uint8_t payload[8];
+  // Protocol: 9 bytes. Byte 0 = interval index (0-10). Bytes 1-2 = 12-bit battery offset + 4-bit sequence. Bytes 3-8 = 6 temps: 250 null, 251 too cold, 252 too warm, else (centidegrees/100+10)/0.2.
+  static uint8_t payload[9];
+  uint8_t intervalByte = (currentIntervalIndex > 10) ? 10 : currentIntervalIndex;
+  payload[0] = intervalByte;
+
   uint32_t vbat_mv = (uint32_t)(VBAT_VOLTS() * 1000.0f);
   int32_t offset = (int32_t)vbat_mv - 3000;
   if (offset < 0) offset = 0;
   if (offset > 4095) offset = 4095;
   uint16_t uoffset = (uint16_t)offset;
-  payload[0] = (uint8_t)(uoffset >> 4);
-  payload[1] = (uint8_t)(((uoffset & 0x0FU) << 4) | (wakeCounter & 0x0FU));
+  payload[1] = (uint8_t)(uoffset >> 4);
+  payload[2] = (uint8_t)(((uoffset & 0x0FU) << 4) | (wakeCounter & 0x0FU));
 
   for (uint8_t i = 0; i < 6; i++) {
     if (i >= ramCount) {
-      payload[2 + i] = 250;
+      payload[3 + i] = 250;
       continue;
     }
     uint16_t raw = dataBuffer[i];
     if (raw == 0xFFFFu) {
-      payload[2 + i] = 250;
+      payload[3 + i] = 250;
     } else if (raw == 0xFFFEu) {
-      payload[2 + i] = 251;
+      payload[3 + i] = 251;
     } else if (raw == 0xFFFDu) {
-      payload[2 + i] = 252;
+      payload[3 + i] = 252;
     } else {
       float degC = (int16_t)raw / 100.0f;
-      if (degC < -10.0f) payload[2 + i] = 251;
-      else if (degC > 30.0f) payload[2 + i] = 252;
-      else payload[2 + i] = (uint8_t)((degC + 10.0f) / 0.2f + 0.5f);
+      if (degC < -10.0f) payload[3 + i] = 251;
+      else if (degC > 30.0f) payload[3 + i] = 252;
+      else payload[3 + i] = (uint8_t)((degC + 10.0f) / 0.2f + 0.5f);
     }
   }
 
@@ -216,7 +224,7 @@ void transmitBatchAndWait() {
   }
   digitalWrite(LED_PIN, HIGH);
   txComplete = false;
-  LMIC_setTxData2(currentFPort, payload, 8, 0);
+  LMIC_setTxData2(currentFPort, payload, 9, 0);
 
   // Blocking wait for EV_TXCOMPLETE (with 2-minute safety timeout)
   uint32_t waitStart = millis();
@@ -246,7 +254,9 @@ void setup() {
   pinMode(STRAP_PIN, INPUT_PULLUP);
   delay(100); // Longer delay to ensure pull-up is stable
 
-  sleepIntervalSeconds = 300;
+  currentIntervalIndex = 2; // 5 min, matches previous default
+  uint8_t intervalIdx = (currentIntervalIndex > 10) ? 10 : currentIntervalIndex;
+  sleepIntervalSeconds = kIntervalSecondsByIndex[intervalIdx];
   batchTarget = 6;
   wakeCounter = 0;
   ramCount = 0;
