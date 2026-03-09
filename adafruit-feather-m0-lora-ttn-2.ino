@@ -298,11 +298,10 @@ void transmitBatchAndWait() {
     os_runloop_once();
   }
 
-  // If we broke out due to timeout, force a MAC reset to clear the hung radio state
+  // If we broke out due to timeout, clear the pending TX job to prevent a hung state
   if (!txComplete) {
-    logPrintln(F("FATAL: TX Timeout. Forcing MAC reset."));
-    LMIC_reset();
-    LMIC_setClockError((uint32_t)MAX_CLOCK_ERROR * 5 / 100); // Restore after LMIC_reset
+    logPrintln(F("FATAL: TX Timeout. Clearing pending TX data."));
+    LMIC_clrTxData();
   }
 
   digitalWrite(LED_PIN, LOW);
