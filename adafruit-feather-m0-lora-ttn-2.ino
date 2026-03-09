@@ -60,12 +60,27 @@ static const uint32_t kIntervalSecondsByIndex[11] = {
     300, 60, 300, 900, 1800, 3600, 7200, 21600, 43200, 86400, 604800
 };
 
+// Temperature- and battery-controlled interval: thresholds and season base indices
+#define TEMP_SUMMER_ENTER_C  16
+#define TEMP_SUMMER_LEAVE_C 15
+#define TEMP_MID_ENTER_C    8
+#define TEMP_MID_LEAVE_C    7
+#define VOLTAGE_HEALTHY_V   5.0f
+#define VOLTAGE_LOW_V       4.3f
+#define VOLTAGE_CRITICAL_V  3.5f
+#define BASE_INDEX_SUMMER   4   // 30 min
+#define BASE_INDEX_MID      5   // 60 min
+#define BASE_INDEX_WINTER   7   // 360 min
+#define MAX_INTERVAL_INDEX  10
+
 // Application state (set once in setup from STRAP_PIN)
 static uint8_t runMode; // 0 = PROD, 1 = DEV
 static uint32_t sleepIntervalSeconds;
 static uint8_t batchTarget;
-static uint8_t currentIntervalIndex; // 0-10; only updated in setup() and after successful TX (e.g. future downlink)
+static uint8_t currentIntervalIndex; // 0-10; from setup() and after successful uplink (temperature/battery algorithm)
 static uint8_t currentFPort;
+static uint8_t current_season_state; // 0=Winter, 1=Fall/Spring, 2=Summer; updated only in interval calculation
+static float lastTempC;              // Latest water temp from readAndBufferSensors(); used when applying next interval
 static volatile bool txComplete = false;
 static uint8_t wakeCounter; // 4-bit sequence 0..15 for protocol; set to 0 in setup()
 static uint32_t joinAttemptStart = 0;
@@ -157,6 +172,7 @@ void readAndBufferSensors() {
   sensors.requestTemperatures();
   delay(750); // Dallas sensors need time to convert at 12-bit resolution
   float tempC = sensors.getTempCByIndex(0);
+  lastTempC = tempC;
   int16_t encodedTemp = encodeTemperature(tempC);
 
   // Shift right by 1; only indices 1..5 (never 6) to avoid buffer overrun
@@ -177,6 +193,56 @@ void readAndBufferSensors() {
   logPrint(ramCount);
   logPrint(F("/"));
   logPrintln(batchTarget);
+}
+
+// Computes next interval index from water temp and battery voltage. Season state uses 1 C hysteresis
+// to avoid flapping at boundaries. Cold-weather battery illusion: low voltage in cold does not
+// permanently lock long interval; when temp rises, season can transition and base can shorten.
+// Final index is clamped to 1..MAX_INTERVAL_INDEX (memory-crash edge case: winter + critical battery).
+static uint8_t calculate_interval_index(float tempC, float voltageV) {
+  // Invalid/NaN temp: do not change season state; use previous state for base index
+  if (tempC != tempC || tempC < -50.0f || tempC > 60.0f) {
+    // Keep current_season_state unchanged; fall through to base index from it
+  } else {
+    if (current_season_state == 2 && tempC < (float)TEMP_SUMMER_LEAVE_C) {
+      current_season_state = 1;
+    } else if (current_season_state == 1 && tempC >= (float)TEMP_SUMMER_ENTER_C) {
+      current_season_state = 2;
+    } else if (current_season_state == 1 && tempC < (float)TEMP_MID_LEAVE_C) {
+      current_season_state = 0;
+    } else if (current_season_state == 0 && tempC >= (float)TEMP_MID_ENTER_C) {
+      current_season_state = 1;
+    }
+  }
+
+  uint8_t base_index;
+  if (current_season_state == 2) {
+    base_index = BASE_INDEX_SUMMER;
+  } else if (current_season_state == 1) {
+    base_index = BASE_INDEX_MID;
+  } else {
+    base_index = BASE_INDEX_WINTER;
+  }
+
+  uint8_t voltage_offset = 0;
+  if (voltageV >= VOLTAGE_HEALTHY_V) {
+    voltage_offset = 0;
+  } else if (voltageV >= VOLTAGE_LOW_V) {
+    voltage_offset = 1;
+  } else if (voltageV >= VOLTAGE_CRITICAL_V) {
+    voltage_offset = 2;
+  } else {
+    voltage_offset = 3;
+  }
+
+  uint8_t final_index = base_index + voltage_offset;
+  if (final_index > MAX_INTERVAL_INDEX) {
+    final_index = MAX_INTERVAL_INDEX;
+  }
+  if (final_index < 1) {
+    final_index = 1;  // Index 0 is unused; always schedule with at least 1 min
+  }
+  return final_index;
 }
 
 void transmitBatchAndWait() {
@@ -240,8 +306,13 @@ void transmitBatchAndWait() {
   }
 
   digitalWrite(LED_PIN, LOW);
-  if (txComplete)
+  if (txComplete) {
+    float vbat_volts = (float)vbat_mv / 1000.0f;
+    uint8_t nextIndex = calculate_interval_index(lastTempC, vbat_volts);
+    currentIntervalIndex = nextIndex;
+    sleepIntervalSeconds = kIntervalSecondsByIndex[currentIntervalIndex];
     ramCount = 0; // Clear buffer only after successful send; on timeout we retry next cycle
+  }
 }
 
 void setup() {
@@ -254,7 +325,9 @@ void setup() {
   pinMode(STRAP_PIN, INPUT_PULLUP);
   delay(100); // Longer delay to ensure pull-up is stable
 
-  currentIntervalIndex = 2; // 5 min, matches previous default
+  currentIntervalIndex = 2; // 5 min initial; then from temperature/battery algorithm after each successful TX
+  current_season_state = 2; // Summer; first TX will use real temp and hysteresis
+  lastTempC = 15.0f;       // Safe default until first reading
   uint8_t intervalIdx = (currentIntervalIndex > 10) ? 10 : currentIntervalIndex;
   sleepIntervalSeconds = kIntervalSecondsByIndex[intervalIdx];
   batchTarget = 6;
