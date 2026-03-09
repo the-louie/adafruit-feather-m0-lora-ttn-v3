@@ -404,11 +404,15 @@ void loop() {
   // STATE 2: Operational
   if (joinSuccessBlinkPending) {
     joinSuccessBlinkPending = false;
+    // Post-join blink: 50 ms waits run os_runloop_once() so MAC commands from the network can be processed.
     for (int i = 0; i < 5; i++) {
       digitalWrite(LED_PIN, HIGH);
-      delay(50);
+      uint32_t t = millis();
+      while (millis() - t < 50) os_runloop_once();
+
       digitalWrite(LED_PIN, LOW);
-      delay(50);
+      t = millis();
+      while (millis() - t < 50) os_runloop_once();
     }
   }
   readAndBufferSensors();
