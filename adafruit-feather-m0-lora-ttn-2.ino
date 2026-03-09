@@ -295,10 +295,6 @@ void transmitBatchAndWait() {
     }
   }
 
-  LMIC.globalDutyAvail = 0;
-  for (int i = 0; i < MAX_BANDS; i++) {
-    LMIC.bands[i].avail = 0;
-  }
   digitalWrite(LED_PIN, HIGH);
   txComplete = false;
   LMIC_setTxData2(currentFPort, payload, 9, 0);
