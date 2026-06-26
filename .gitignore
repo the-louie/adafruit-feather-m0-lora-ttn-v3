@@ -1,1 +1,7 @@
 ﻿.cursor
+
+# Secrets — never commit (contains TTN_TOKEN)
+.env
+
+# Claude Code session state
+.claude/
