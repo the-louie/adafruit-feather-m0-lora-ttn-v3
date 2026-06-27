@@ -71,7 +71,20 @@ Two behaviors worth knowing when reasoning about the algorithm:
 
 ## Build & test
 
-Arduino IDE / arduino-cli, board **Adafruit Feather M0**, with MCCI LoRaWAN LMIC, ArduinoLowPower, OneWire, and DallasTemperature. `CFG_eu868` must be set in the library's `lmic_project_config.h` — it is not settable from the sketch. **DIO1 must be physically jumpered to pin 6**; the pin map assumes it.
+Run **`./scripts/setup-toolchain.sh`** as your normal user (no root). It installs arduino-cli, the Adafruit SAMD core and the libraries, configures the region, compiles, and prints the baseline. Idempotent.
+
+```
+arduino-cli compile --fqbn adafruit:samd:adafruit_feather_m0 .
+# baseline 2026-07-17: 61632 bytes (23%) of program storage
+```
+
+Pinned versions: adafruit:samd 1.7.17, **MCCI LMIC 6.0.1**, Arduino Low Power 1.2.2, RTCZero 1.6.0, OneWire 2.3.8, DallasTemperature 4.0.6.
+
+**The region trap.** `CFG_eu868` must be set in the library's `lmic_project_config.h` — inside the library, not this repo, so it is invisible and unversioned. `reference/lmic_project_config.h` is the known-good copy. The stock file ships with **`CFG_us915` enabled**, so naively adding `eu868` defines two regions and LMIC refuses to build. Disable every region, enable exactly one. `CFG_sx1276_radio` is not a region — it picks the RFM95's chip and stays.
+
+The sketch's `#ifndef CFG_eu868 / #error` guard is verified working: both a missing region and the stock us915 default are refused at compile time, so a US915 binary cannot reach a device by accident.
+
+**DIO1 must be physically jumpered to pin 6**; the pin map assumes it.
 
 **There is no automated test suite and no test hardware** — units are ordered but arrive later than sprint 03. Everything currently ships verified by compilation alone; sprints 06–07 verify retroactively. Building the executable checks is sprint 01–02 work (a Node decoder harness and host-side firmware tests).
 

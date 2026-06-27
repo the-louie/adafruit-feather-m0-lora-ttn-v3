@@ -76,17 +76,34 @@ say "6/7  lmic_project_config.h -- CFG_eu868"
 CFG="$(find "$HOME/Arduino/libraries" -path '*MCCI*' -name 'lmic_project_config.h' 2>/dev/null | head -1)"
 [ -n "$CFG" ] || die "lmic_project_config.h not found under ~/Arduino/libraries"
 echo "found: $CFG"
-if grep -qE '^\s*#define\s+CFG_eu868' "$CFG"; then
-  echo "CFG_eu868 already defined"
-else
-  cp "$CFG" "$CFG.bak.$(date +%s)"
-  # The stock file ships every region commented out. Enable eu868, leave the rest.
-  sed -i 's|^//\s*#define CFG_eu868 1|#define CFG_eu868 1|' "$CFG"
-  grep -qE '^\s*#define\s+CFG_eu868' "$CFG" || echo '#define CFG_eu868 1' >> "$CFG"
-  echo "CFG_eu868 enabled (backup written alongside)"
-fi
-echo "--- effective region defines:"
+
+# TRAP: the stock file ships with CFG_us915 ENABLED, not "all regions commented
+# out". So a fresh clone + fresh library install is a US915 build. Enabling
+# eu868 without disabling us915 defines two regions and LMIC's own guard fires:
+#   "#error You can define at most one of CFG_... variables"
+# Disable every region first, then enable exactly one. CFG_sx1276_radio is NOT a
+# region -- it selects the RFM95's radio chip and must stay.
+cp "$CFG" "$CFG.bak.$(date +%s)"
+python3 - "$CFG" <<'PY'
+import re, sys
+p = sys.argv[1]
+regions = ("eu868","us915","au915","as923","as923jp","kr920","in866")
+out = []
+for line in open(p):
+    m = re.match(r'\s*(//\s*)?#define\s+CFG_(\w+)\s', line)
+    if m and m.group(2) in regions:
+        want = (m.group(2) == "eu868")
+        body = re.sub(r'^\s*(//\s*)?', '', line)
+        out.append(body if want else "//" + body)
+    else:
+        out.append(line)
+open(p, "w").writelines(out)
+PY
+echo "--- effective defines (exactly one region + the radio):"
 grep -E '^\s*#define\s+CFG_' "$CFG" || true
+n=$(grep -cE '^\s*#define\s+CFG_(eu868|us915|au915|as923|as923jp|kr920|in866)\s' "$CFG")
+[ "$n" -eq 1 ] || die "expected exactly 1 region enabled, found $n"
+grep -qE '^\s*#define\s+CFG_eu868' "$CFG" || die "CFG_eu868 not enabled"
 
 # Commit a reference copy so the build config stops being folklore. It cannot
 # live in its real location under version control -- that path is inside the
