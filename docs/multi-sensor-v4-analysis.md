@@ -4,7 +4,9 @@ Status: **analysis only. Not scheduled, no tasks filed.** Recorded so v3 does no
 
 Management wants up to three extra DS18B20 sensors in a future version — **box** (inside the enclosure), **air** (outside), **depth** (water at a second depth) — in some combination. All units will be identical once the design is settled; the variance is only during design. Not for v3.
 
-**Sensor geometry, confirmed 2026-07-17:** the existing "surface" sensor sits at **0.5–1 m**; the new depth sensor would sit at **1–2 m**. **Surface drives the season; depth is product data only.**
+**Sensor geometry, confirmed 2026-07-17:** the existing "surface" sensor sits at **0.5–1 m**; the depth sensor would start at **1–2 m** and **move to 3–6 m if the 1–2 m delta proves negligible**. **Surface drives the season; depth is product data only.**
+
+That contingency is the single most important constraint in this document. **The placement is decided from the data the sensor itself produces**, so the encoding must serve both regimes without a reflash — a relocation is a site visit, and the wire format must not be the reason it becomes a firmware event too.
 
 The question this document answers is narrow: **what must v3 do, or avoid, so that adding these later is cheap?**
 
@@ -15,7 +17,7 @@ The question this document answers is narrow: **what must v3 do, or avoid, so th
 3. **Temporal delta encoding (sample-to-sample) is not worth it.** It saves ~10 ms of airtime per uplink against a 30 s/day budget, and it breaks the length-based protocol detection the decoder depends on. Quantified below. Note this is a different proposal from point 6 — *spatial* delta between two sensors is worth doing, for the opposite reason.
 4. **The real protocol work is encoding range, not compression.** `-10…+30 °C` is a *water* range. Swedish air reaches −25 °C and would be sentinel-clipped all winter.
 5. **v3 needs four small changes**, all naming or guards. Nothing structural.
-6. **Depth should be encoded as a delta from surface — but for resolution, not compression.** The two sensors sit 0.5–1.5 m apart in the same water layer, so the delta *is* the measurement, and the current 0.2 °C quantisation throws away 3.2× of the sensor's native resolution exactly where it matters.
+6. **Depth should be encoded as a delta from surface — for resolution, not compression — spanning −20.0…+4.9 °C at 0.1 °C/step.** The asymmetric range is physical: depth is colder than surface except under ice, where water's 4 °C maximum density caps the inversion. One encoding covers both the 1–2 m and 3–6 m placements, so the sensor can be relocated without a reflash.
 7. **A depth sensor without pair calibration measures nothing.** Two uncalibrated DS18B20s have ±0.71 °C of delta error — wider than the stratification being measured. The lake solves this for free at turnover.
 
 ## Research: 1-Wire best practice
@@ -118,14 +120,35 @@ So depth-as-an-absolute is largely a redundant copy of surface. **What carries i
 
 **And the current encoding is far too coarse for it.** The payload quantises to 0.2 °C, while the DS18B20's native 12-bit resolution is 0.0625 °C — the protocol discards **3.2×** of the sensor's precision. Against a realistic 0.5–2 °C stratification that leaves only 2–10 distinguishable levels. The instrument can see the signal; the wire format cannot carry it.
 
-**The fix is re-allocation, not compression** — and it is the defensible form of the "clever maths" management asked for:
+### The span must survive relocation
 
-| encoding | span | levels | resolution |
-|---|---|---|---|
-| depth as absolute, 0.2 °C/step | −10…+30 °C | 200 | 0.2 °C |
-| **depth as delta from surface, 0.0625 °C/step** | **±7.9 °C** | **254** | **0.0625 °C** |
+**A ±7.9 °C delta at 0.0625 °C/step was the obvious answer and it is wrong.** It works at 1–2 m and clips catastrophically at 3–6 m — where the sensor may sit *below the summer thermocline*, in the hypolimnion, while the surface is 17 °C warmer:
 
-Same 8 bits. Same byte count. **3.2× better resolution on the quantity of interest**, and ±7.9 °C comfortably brackets any stratification these two depths can physically show. Unlike temporal delta encoding it is **fixed-width**, so it does not break the length-based protocol detection the fleet strategy depends on, and unlike air it is **physically bounded**, so it cannot clip.
+| placement | condition | surface | depth | delta |
+|---|---|---|---|---|
+| 1–2 m | summer | 22.0 | 21.0 | **−1.0** |
+| 1–2 m | under ice | 1.5 | 3.0 | **+1.5** |
+| 3–6 m | summer, below thermocline | 22.0 | 5.0 | **−17.0** |
+| 3–6 m | summer, *at* thermocline | 22.0 | 12.0 | **−10.0** |
+| 3–6 m | under ice | 1.5 | 4.0 | **+2.5** |
+| either | turnover | 8.0 | 8.0 | **0.0** |
+
+Physical range: **−17.0 … +2.5 °C**, and strongly asymmetric — depth is colder than surface in every condition except under ice, where water's 4 °C maximum density caps the inversion at about +4.
+
+**The encoding that survives both placements:**
+
+| | |
+|---|---|
+| raw 0…249 | **−20.0 … +4.9 °C at 0.1 °C/step** |
+| raw 250 / 251 / 252 | null / clipped-low / clipped-high — **matches the existing sentinel convention** |
+
+Still 8 bits, same byte count as an absolute reading, **2× the resolution of today's 0.2 °C**, with 3 °C of low headroom and 2.4 °C of high. Fixed-width, so unlike temporal deltas it does not break length-based protocol detection. And it is bounded by physics rather than by hope, so unlike air it cannot clip in normal operation.
+
+**0.1 °C is the right step, and 0.0625 °C was false precision.** After the turnover offset is removed the pair is good to roughly ±0.2–0.3 °C — the DS18B20's error *curve shape* differs per part, so calibrating at 4 °C (turnover) and measuring at 20 °C (summer stratification) does not fully transfer. Encoding finer than the accuracy would have been decoration.
+
+**Why delta still beats absolute at 3–6 m**, where depth is genuinely independent data rather than a near-copy of surface: it is still 2× the resolution for the same byte, it directly encodes the quantity of interest, and absolute depth is recoverable as `surface + delta`. The cost is that recovered absolute depth carries both sensors' error rather than one — acceptable, because the stratification is the science and the absolute is the by-product.
+
+**The decisive argument is the relocation itself.** The 1–2 m deployment exists to answer "is there a delta here?", and that question can only be answered with resolution fine enough to see a 0.5 °C signal — which today's 0.2 °C absolute encoding cannot (2 levels). So the fine-resolution delta is *required for the decision phase*, and the wide span means the same firmware keeps working after the sensor moves.
 
 This is worth doing *even though the byte budget has room*, because it buys data quality rather than airtime.
 
@@ -150,7 +173,7 @@ So v4 needs **per-sensor encodings**, not per-sensor compression:
 | sensor | plausible range | note |
 |---|---|---|
 | surface | −10…+30 °C | unchanged; 0.2 °C/step; drives season |
-| depth | ±7.9 °C **delta from surface** | 0.0625 °C/step — see above |
+| depth | −20.0…+4.9 °C **delta from surface** | 0.1 °C/step; sentinels 250/251/252 — see above |
 | air | −40…+40 °C | 0.32 °C/step in one byte, or 0.2 °C at 400 steps = 9 bits |
 | box | −40…+60 °C | can exceed air — a sealed dark box behind a south-facing panel in July |
 
@@ -174,6 +197,8 @@ None of this is structural. v3 is already close to right, largely because the it
 
 ## Open questions for v4 (not now)
 
+- **Depth placement should be a per-device decoder constant**, like `FIRMWARE_VERSION` and latitude. Firmware stays one-binary and depth-agnostic; the backend needs the depth to interpret the delta, and a relocation becomes a decoder edit rather than a reflash. This is the third instance of the same pattern — worth naming as a convention rather than rediscovering a fourth time.
+- **A sensor at 3–6 m may sit *at* the thermocline, not below it** — and the thermocline deepens through the summer, so a fixed sensor would be crossed by it. That produces the most informative signal available and the most placement-sensitive one: metres of thermocline drift show up as several °C of delta swing. Worth knowing before anyone reads a wandering summer delta as a fault.
 - **Is the −10…0 °C part of the water range dead, and is that a bug or a feature?** Liquid water cannot sit below 0 °C, so a quarter of the 200-step water encoding is physically unreachable. Which means sentinel 251 ("too cold") on a *water* sensor is not a temperature reading at all — it is **"the sensor is not in the water"**: pulled out, low water level, or a failed probe. That is real diagnostic value hiding in a range that looks wasted. If v8 reworks the encoding anyway, decide deliberately: reclaim the range for resolution, or keep it as the fault channel. Do not reclaim it by accident.
 
 - **Which combination actually ships?** Box alone, box+air, all three. Auto-detect makes this a wiring decision rather than a firmware one — but the alarm story differs: a missing *depth* sensor is lost product data, a missing *box* sensor is lost diagnostics.
