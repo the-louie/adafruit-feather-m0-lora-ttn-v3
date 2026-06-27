@@ -2,7 +2,7 @@
 
 **Dates:** 2026-07-16 (Thu) → 2026-07-29 (Wed)
 **Capacity:** 1 developer, ~30 h effective
-**Planned:** 18 tasks, ~27 h
+**Planned:** 19 tasks, ~29 h
 
 ## Goal
 
@@ -27,6 +27,7 @@ Tasks 13–15 close out hardware. **No MPPT — decided 2026-07-17** — no exte
 
 | # | Task | Est | Item |
 |---|---|---|---|
+| **00** | **Prove the project still builds** | **1–2 h** | **—** |
 | 01 | Export the live TTN decoder | 1–2 h | 13 |
 | 02 | Diff live decoder against repo copy | 1–2 h | 13 |
 | 03 | Reconcile or delete the repo decoder | 1 h | 13 |
@@ -46,7 +47,13 @@ Tasks 13–15 close out hardware. **No MPPT — decided 2026-07-17** — no exte
 | 17 | Update CLAUDE.md with confirmed findings | 1–2 h | — |
 | 18 | Update cursor skills with confirmed defects | 1–2 h | — |
 
+## Do task 00 first
+
+Nothing else in this plan matters if the project does not compile, and **nobody has checked**. The only verification sprints 02–04 have is "it compiles"; `lmic_project_config.h` lives inside the library rather than the repo, so the build config is invisible and unversioned. If it cannot be reproduced from a clone, sprint 02 stalls on day one.
+
 ## Exit criteria
+
+- **The project compiles from a reproducible environment**, with library versions pinned and a flash/RAM baseline recorded.
 
 - The real decoder is committed and is the only decoder in the repo.
 - We know what `gisebo-04` runs, and whether its history is interpretable.
