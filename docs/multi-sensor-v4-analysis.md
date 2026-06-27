@@ -4,15 +4,19 @@ Status: **analysis only. Not scheduled, no tasks filed.** Recorded so v3 does no
 
 Management wants up to three extra DS18B20 sensors in a future version — **box** (inside the enclosure), **air** (outside), **depth** (water at a second depth) — in some combination. All units will be identical once the design is settled; the variance is only during design. Not for v3.
 
+**Sensor geometry, confirmed 2026-07-17:** the existing "surface" sensor sits at **0.5–1 m**; the new depth sensor would sit at **1–2 m**. **Surface drives the season; depth is product data only.**
+
 The question this document answers is narrow: **what must v3 do, or avoid, so that adding these later is cheap?**
 
 ## Summary of conclusions
 
 1. **Pin-per-role, not a shared bus.** The pin *is* the sensor's identity. This is the only option that preserves the one-binary property the whole architecture rests on.
 2. **Sampling extra sensors is free. Reporting them is not.** All DS18B20s on a bus convert in parallel, so N sensors cost the same 750 ms as one. Decouple sample cadence from report cadence.
-3. **Delta encoding is not worth it.** It saves ~10 ms of airtime per uplink against a 30 s/day budget, and it breaks the length-based protocol detection the decoder already depends on. Quantified below.
+3. **Temporal delta encoding (sample-to-sample) is not worth it.** It saves ~10 ms of airtime per uplink against a 30 s/day budget, and it breaks the length-based protocol detection the decoder depends on. Quantified below. Note this is a different proposal from point 6 — *spatial* delta between two sensors is worth doing, for the opposite reason.
 4. **The real protocol work is encoding range, not compression.** `-10…+30 °C` is a *water* range. Swedish air reaches −25 °C and would be sentinel-clipped all winter.
 5. **v3 needs four small changes**, all naming or guards. Nothing structural.
+6. **Depth should be encoded as a delta from surface — but for resolution, not compression.** The two sensors sit 0.5–1.5 m apart in the same water layer, so the delta *is* the measurement, and the current 0.2 °C quantisation throws away 3.2× of the sensor's native resolution exactly where it matters.
+7. **A depth sensor without pair calibration measures nothing.** Two uncalibrated DS18B20s have ±0.71 °C of delta error — wider than the stratification being measured. The lake solves this for free at turnover.
 
 ## Research: 1-Wire best practice
 
@@ -62,16 +66,16 @@ What costs is **payload bytes**. So the cadence question is not "how often do we
 
 | sensor | role | suggested reporting |
 |---|---|---|
-| water | product data, drives season | 6 samples/message, as today |
-| depth | product data | 6 samples/message |
+| surface (0.5–1 m) | product data, **drives season** | 6 samples/message, as today |
+| depth (1–2 m) | product data — stratification | 6 delta samples/message |
 | air | context | 1 sample (latest) |
 | box | diagnostic — does the enclosure cook in July? | 1 sample (latest) |
 
 v3 currently conflates sample cadence with report cadence — 6 samples, then an uplink. Keeping that conflation out of the *core* is one of the v3 notes below.
 
-### Delta encoding: analysed and not recommended
+### Temporal delta encoding: analysed and not recommended
 
-Management specifically asked for delta packing. The numbers do not support it.
+Management specifically asked for delta packing to fit N values in fewer than N bytes. Read as *sample-to-sample deltas within one sensor's history*, the numbers do not support it. (Read as *spatial delta between two sensors*, it is worth doing — see the depth section below. The two proposals share a name and nothing else.)
 
 **The byte budget is not under pressure.** Maximal config, everything at 6 samples:
 
@@ -104,6 +108,37 @@ Delta encoding buys **~10 ms per uplink**. At 48 uplinks/day that is **0.5 s/day
 
 There is a genuinely elegant observation worth recording in case this is revisited: **the interval already normalises water deltas.** The season machine lengthens the interval precisely when the tank changes slowly, so delta-per-interval is roughly season-invariant by design, and byte 0 tells the decoder which width to expect. That makes interval-keyed variable-width deltas *tractable* for water. It does not make them worth it.
 
+### Depth: the delta is the measurement
+
+**Surface drives the season. Depth is product data only.** The season machine is therefore *unaffected* by v4 — the existing sensor keeps its job, and no new input touches the seasonal baseline. That is the single most useful thing about this clarification: it means v4 adds sensors without reopening the interval policy at all.
+
+But the geometry changes what the depth sensor is *for*. Surface at 0.5–1 m is already sub-skin, and depth at 1–2 m is only 0.5–1.5 m below it. In a small Swedish lake the summer thermocline sits well beneath both, so **both sensors live in the epilimnion** — the wind-mixed upper layer — and read nearly the same temperature for most of the year. At spring and autumn turnover they are identical by definition.
+
+So depth-as-an-absolute is largely a redundant copy of surface. **What carries information is the difference**: a shallow diurnal thermocline on a still sunny afternoon, or inverse stratification under winter ice. That is the quantity worth spending bytes on.
+
+**And the current encoding is far too coarse for it.** The payload quantises to 0.2 °C, while the DS18B20's native 12-bit resolution is 0.0625 °C — the protocol discards **3.2×** of the sensor's precision. Against a realistic 0.5–2 °C stratification that leaves only 2–10 distinguishable levels. The instrument can see the signal; the wire format cannot carry it.
+
+**The fix is re-allocation, not compression** — and it is the defensible form of the "clever maths" management asked for:
+
+| encoding | span | levels | resolution |
+|---|---|---|---|
+| depth as absolute, 0.2 °C/step | −10…+30 °C | 200 | 0.2 °C |
+| **depth as delta from surface, 0.0625 °C/step** | **±7.9 °C** | **254** | **0.0625 °C** |
+
+Same 8 bits. Same byte count. **3.2× better resolution on the quantity of interest**, and ±7.9 °C comfortably brackets any stratification these two depths can physically show. Unlike temporal delta encoding it is **fixed-width**, so it does not break the length-based protocol detection the fleet strategy depends on, and unlike air it is **physically bounded**, so it cannot clip.
+
+This is worth doing *even though the byte budget has room*, because it buys data quality rather than airtime.
+
+### The accuracy trap: an uncalibrated pair measures nothing
+
+A DS18B20 is specified at **±0.5 °C absolute**. Two of them differencing gives **±0.71 °C** of error (RSS) — **wider than the stratification being measured**. Encoding the delta at 0.0625 °C resolution while the pair carries 0.71 °C of systematic offset would produce beautifully precise nonsense.
+
+The delta therefore needs **pair calibration**: the constant offset between the two specific sensors must be measured and removed.
+
+**The lake does this for free, twice a year.** At spring and autumn turnover the water column is fully mixed and genuinely isothermal — so any delta the pair reports at turnover *is* the sensor offset. The backend can auto-calibrate by taking the median reported delta across a turnover window and subtracting it thereafter. No firmware change, no bench procedure, no field visit — and it re-calibrates annually, which also catches drift and sensor replacement.
+
+This is backend work and costs nothing in v3 or v4 firmware. It should be recorded now because **the raw delta must stay on the wire uncalibrated** for it to be possible — the firmware must not "helpfully" apply an offset it cannot know.
+
 ### The real protocol work is range, not compression
 
 `encodeTemperature()` maps `-10…+30 °C` to 0…200 at 0.2 °C/step, with 250/251/252 sentinels. **That is a water range.** A tank or lake lives inside it.
@@ -114,7 +149,8 @@ So v4 needs **per-sensor encodings**, not per-sensor compression:
 
 | sensor | plausible range | note |
 |---|---|---|
-| water / depth | −10…+30 °C | unchanged; 0.2 °C/step |
+| surface | −10…+30 °C | unchanged; 0.2 °C/step; drives season |
+| depth | ±7.9 °C **delta from surface** | 0.0625 °C/step — see above |
 | air | −40…+40 °C | 0.32 °C/step in one byte, or 0.2 °C at 400 steps = 9 bits |
 | box | −40…+60 °C | can exceed air — a sealed dark box behind a south-facing panel in July |
 
@@ -125,7 +161,7 @@ Box deserves the wider top end specifically: the enclosure is sealed, dark, and 
 None of this is structural. v3 is already close to right, largely because the item 1 fix and the `PowerPolicy` split happen to generalise well.
 
 1. **Rename `encodeTemperature()` → `encodeWaterTemperature()`.** The −10…+30 range is water-specific and the name hides it. v4 then adds `encodeAirTemperature()` naturally, and nobody reuses the wrong range by accident. Pure naming; zero risk.
-2. **Rename `lastTempC` → something that says *water/season driver*.** When four temperatures exist, "the temperature" stops meaning anything, and the season machine must never be fed air or box temp — the whole seasonal rationale is about the *tank's* thermal state.
+2. **Rename `lastTempC` → `surfaceTempC`.** Not `waterTempC` — v4 has *two* water sensors and only the 0.5–1 m one drives the season. When four temperatures exist, "the temperature" stops meaning anything, and the season machine must never be fed air, box, or depth. `surfaceTempC` names the sensor *and* the role, and it stays correct once depth arrives.
 3. **Assert exactly one device on the A2 bus** (`sensors.getDeviceCount() == 1`). v3 keeps `getTempCByIndex(0)`, which is correct *only* while the bus has one device. The assert makes a mis-wired second sensor loud instead of silently reassigning which reading is "water". One line, and it is the guard that protects the v3→v4 transition.
 4. **Keep the conversion window owned by the core, not the sensor read.** The item 1 fix already does this — it measures the window from `requestTemperatures()` and lets `PowerPolicy::onWake()` borrow part of it. That pattern generalises directly to "issue convert on all buses, wait once, read all". Do not let the 750 ms wait migrate back inside a per-sensor function.
 
@@ -138,8 +174,9 @@ None of this is structural. v3 is already close to right, largely because the it
 
 ## Open questions for v4 (not now)
 
+- **Is the −10…0 °C part of the water range dead, and is that a bug or a feature?** Liquid water cannot sit below 0 °C, so a quarter of the 200-step water encoding is physically unreachable. Which means sentinel 251 ("too cold") on a *water* sensor is not a temperature reading at all — it is **"the sensor is not in the water"**: pulled out, low water level, or a failed probe. That is real diagnostic value hiding in a range that looks wasted. If v8 reworks the encoding anyway, decide deliberately: reclaim the range for resolution, or keep it as the fault channel. Do not reclaim it by accident.
+
 - **Which combination actually ships?** Box alone, box+air, all three. Auto-detect makes this a wiring decision rather than a firmware one — but the alarm story differs: a missing *depth* sensor is lost product data, a missing *box* sensor is lost diagnostics.
-- **Does depth temperature drive season, or does surface?** Two water readings, one season machine. Surface responds faster; depth is more stable. Needs a deliberate answer, not a default.
 - **Does the sensor-present bitmask go in the payload or is absence inferred?** The INA219 probe's failure mode argues for explicit reporting — a loose sensor silently vanishing from the payload is the same silent-decommission shape, just less severe.
 - **Protocol version.** v8. Reserve it; do not reuse v7.
 - **Air temperature has an interesting side effect**: it makes the "cold battery illusion" reasoning testable. The season machine keys on water temperature partly because a cold pack reads low; with real air temperature on the wire, that correlation becomes measurable rather than assumed.
