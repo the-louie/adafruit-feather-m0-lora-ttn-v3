@@ -136,9 +136,17 @@ Changing the 4 bits from a wake counter to an uplink counter leaves the layout *
 
 So this is **v7**, not a silent semantic change to v6. See `docs/solar-variant-design.md` § Protocol versioning. The decoder resolves it with a per-device `FIRMWARE_VERSION` constant — decoders are set per device in TTN, and with two units where a reflash is a site visit, provisioning already knows what is flashed.
 
-Deployed units need a reflash. An un-reflashed unit is not corrupted — its counter just still means "wake count" — but its decoder must stay pinned at `FIRMWARE_VERSION = 6` until it is.
+### No fleet reflash — superseded 2026-07-17
 
-The {1, 7, 13} signature is a useful fleet-tracking tool in its own right: any unit still emitting it has not been reflashed.
+An earlier draft said "deployed units need a reflash" and sequenced the decoder change against it. **That is wrong and the concern evaporates.**
+
+- **gisebo-01 is PRODUCTION and frozen.** It feeds a webhook into influx/grafana; its decoder's output *is* the influx schema, so renaming `sequence` → `uplink_counter` there would break grafana. Its decoder stays as-is, defects and all.
+- **gisebo-04 is not being touched.**
+- **v7 targets `gisebo-05`, an entirely new device.** It gets its own decoder from day one, pinned at `FIRMWARE_VERSION = 7`. Nothing ever reinterprets old bytes, so the byte-identical-layout ambiguity never arises in practice.
+
+This also removes the plan's largest risk: the first board to run new firmware is **a bench board, not a production board on a post at a lake**.
+
+The {1, 7, 13} signature remains a useful fleet marker: any unit emitting it is pre-fix.
 
 ### Counter semantics the decoder must document
 
@@ -541,7 +549,13 @@ The live decoder handles 8- and 9-byte shapes, hardcodes `version: 5`, reports a
 
 ### Solution
 
-**One combined decoder, not one per variant.** The live decoder already branches on length for 8 vs 9 bytes, so 15-byte extends an existing pattern and bytes 0–8 parsing stays in one place. Two files would drift — exactly how `ttn-decoder-v6.js` drifted from what actually runs (item 13).
+**Re-examine "one combined decoder" — 2026-07-17.** The export changed the facts it rested on.
+
+There is **no application-level formatter**. Both live devices carry their **own**, and they **differ** — gisebo-01's is 9-byte aware, gisebo-04's is 8-byte only with a hardcoded interval. Neither branches on length; that was an inference from `decoded_payload`, and it was wrong. Per-device decoders are not a new idea to introduce; they are how this already runs.
+
+More decisively: **gisebo-01 is production and frozen**, so a combined decoder could never be deployed there without reproducing its exact output schema byte-for-byte — including the `version: 5` bug and the phantom entries. The drift argument for combining assumed one artifact serving every device. That is not achievable.
+
+**So: leave gisebo-01's and gisebo-04's decoders alone. Write a fresh one for gisebo-05, pinned at `FIRMWARE_VERSION = 7`.** The drift risk moves from "two files diverge" to "the new decoder is the only one maintained", which is the honest position — the old two are frozen records, not living code.
 
 - Per-device constant, the only thing not derivable from the payload:
   ```js
