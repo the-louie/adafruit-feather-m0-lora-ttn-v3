@@ -1,0 +1,6 @@
+# Normalise line endings. Nine files arrived as pure LF->CRLF churn during
+# planning -- byte-identical content, 643 lines of diff noise across the .ino
+# and every dev-note. Without this it recurs and buries real changes.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
