@@ -7,9 +7,14 @@
 
 ## Context
 
-**The voltage bands are bare thresholds and will dither — this is live in production now.** The A7 divider gives a 6.45 mV LSB (10-bit, 3.3 V ref, x2) and a single SAMD21 ADC sample carries ~+/-13-19 mV of noise. A pack within that of a band edge flips `voltage_offset` **every wake**.
+**The voltage bands are bare thresholds and will dither.** The A7 divider gives a 6.45 mV LSB (10-bit, 3.3 V ref, ×2) and a single SAMD21 ADC sample carries ~±13–19 mV of noise. A pack sitting within that of a band edge flips `voltage_offset` **every wake**.
 
-`gisebo-04` reads 5.233 V today and is drifting toward the 5.00 V edge. When it arrives, its interval will thrash 4<->5 (30 min <-> 60 min) on ADC noise alone. The season machine got 1 C of hysteresis for exactly this reason; the voltage ladder never did.
+**Correction — this is NOT live in production**, contrary to an earlier draft of this task. That draft said "gisebo-04 reads 5.233 V and is drifting toward the 5.00 V edge". Both halves are wrong:
+
+- **gisebo-04 runs V5 firmware**, which has a *fixed* 5-minute interval (confirmed from its real uplink timing: median gap 30.2 min = 6 × 5.03 min). No dynamic interval means no voltage ladder means nothing to dither. And V5 is never being reflashed.
+- **gisebo-01 reads 5.768 V** — 0.77 V clear of the 5.00 V edge, nowhere near dithering.
+
+So no deployed device has this defect today. **It matters because of gisebo-05.** That unit is solar, and its 3.85 V edge *gates the solar bonus*: a li-ion pack sits on the 3.6–3.9 V plateau for most of its life, so it will spend real time within ±19 mV of that edge — and each flip swings the interval 2↔4, i.e. 5 min ↔ 30 min, wake to wake. The primary bands get the same treatment because the mitigation is shared code (S04-07 reuses this), not because a primary unit needs it today.
 
 Two mitigations, complementary rather than alternative: averaging narrows the noise at source, hysteresis absorbs what is left.
 

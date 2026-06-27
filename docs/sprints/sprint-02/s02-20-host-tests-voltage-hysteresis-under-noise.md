@@ -17,7 +17,7 @@ Test the noise, not the steps.
 2. Test the asymmetry: falling through 5.00 V degrades immediately; rising back requires 5.05 V, not 5.00 V.
 3. Test multi-step drops - a pack collapsing from healthy to below critical must reach offset 3 in one call, not one band per wake. Unlike the season machine, the voltage ladder must **not** be a stepping machine: a failing pack should not need three wakes to be recognised.
 4. Test that averaging reduces spread: 16 samples of +/-19 mV noise should yield ~+/-5 mV.
-5. Replay the production case: 5.233 V (gisebo-04 today) -> offset 0, stable across noise.
+5. Replay the real case that matters: **3.85 V on the solar bands** (gisebo-05's bonus gate) with noise -> `voltage_offset` stays 0, bonus stays latched. Also 5.768 V on the primary bands (gisebo-01 today) -> offset 0, trivially stable since it sits 0.77 V clear of the edge.
 
 ## Done when
 

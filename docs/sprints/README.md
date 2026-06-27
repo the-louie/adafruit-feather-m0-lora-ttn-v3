@@ -13,6 +13,7 @@ Backlog items live in `TODO.md` at the repo root. Design decisions behind the so
 | [05](sprint-05/) | 2026-09-10 → 09-23 | Vectors, backend, documentation | 20 | Ready |
 | [06](sprint-06/) | 2026-09-24 → 10-07 | Core on-device verification | 12 | 🟡 Gated on delivery |
 | [07](sprint-07/) | 2026-10-08 → 10-21 | Solar bring-up and field readiness | 12 | 🟡 Gated on delivery |
+| [08](sprint-08/) | 2026-10-22 → 11-04 | Cutover: gisebo-05 replaces gisebo-01 | 12 | 🟡 Gated on 06–07 |
 
 Sprint 06 and 07 dates are **provisional**. Hardware ETA is "later than sprint 03" and not firm; S05-18 is the readiness review that dates or formally parks them.
 
@@ -78,4 +79,18 @@ Sprint 01 is deliberately all desk work — it needs no hardware and unblocks ev
    hardware delivery ──► 06 core verification ──► 07 solar bring-up ──► field
 ```
 
-The first board to receive new firmware is a **production board on a post at a lake** — there are two units in the field and the bench units have not arrived. S05-16 and S07-12 both treat rollback as a real question, because at that site the answer may be a site visit.
+## The fleet, and what v3 is actually for
+
+| device | protocol | status |
+|---|---|---|
+| gisebo-01 | 9-byte v6, 30 min | **PRODUCTION — frozen until cutover, then retired** |
+| gisebo-04 | 8-byte v5, 5 min fixed | deployed; source not in repo; never being touched |
+| gisebo-05 | v7 **solar** | the target of all v3 work; new, not yet created |
+
+**gisebo-05 replaces gisebo-01** at the same site, and the two are never in production together. That removes what was previously the plan's largest risk: the first board to run new firmware is **a bench board**, not a production board on a post at a lake.
+
+It also means **the solar work is the critical path**, not a side variant — gisebo-05 is solar, so sprint 04 stands between the plan and the cutover.
+
+gisebo-01's freeze is **time-bounded**. Its decoder output *is* the influx schema, so nothing may change while it is live — but at cutover, changing the schema, the decoder and the pipeline are all legitimate, and sprint 08 does exactly that.
+
+**The webhook is application-level and discards what does not fit.** During development that is a gift: gisebo-05 can transmit v7 from a bench into the live pipeline for weeks and be silently dropped. At cutover it is a trap: if telegraf is not migrated in the same operation, the site goes dark in grafana **silently**, because the recipient drops rather than errors. Sprint 08 inverts the usual order — migrate additively, rehearse from the bench with gisebo-01 still live, and only then swap.

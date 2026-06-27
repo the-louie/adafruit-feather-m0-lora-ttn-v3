@@ -146,6 +146,10 @@ An earlier draft said "deployed units need a reflash" and sequenced the decoder 
 
 This also removes the plan's largest risk: the first board to run new firmware is **a bench board, not a production board on a post at a lake**.
 
+**gisebo-05 replaces gisebo-01 at cutover** — the two are never in production together. So the freeze on gisebo-01 is **temporary**, and schema changes become legitimate at the swap. During development gisebo-05 can join and transmit freely: the webhook recipient discards data that does not fit, so v7 uplinks are dropped rather than disrupting the live pipeline.
+
+That same discard behaviour is a **trap at cutover**: if telegraf/influx/grafana are not migrated to the v7 schema in the same operation, the site goes dark in the dashboards **silently**, because the recipient drops rather than errors. See the cutover gap below.
+
 The {1, 7, 13} signature remains a useful fleet marker: any unit emitting it is pre-fix.
 
 ### Counter semantics the decoder must document
@@ -506,7 +510,9 @@ The consequences are not cosmetic:
 | solar | 3.65 V | 1↔2 | interval 4↔5 |
 | primary | 5.00 V | 0↔1 | interval 4↔5 (30 min ↔ 60 min) |
 
-**This is live in production now.** `gisebo-04` reads 5.233 V and is drifting toward the 5.00 V edge; when it arrives it will dither. The season machine got 1 °C of hysteresis for exactly this reason and the voltage ladder never did.
+**Correction: this is not live in production.** An earlier draft claimed `gisebo-04` was drifting toward the 5.00 V edge. It runs V5 firmware with a *fixed* 5-minute interval — no dynamic interval, no voltage ladder, nothing to dither — and is never being reflashed. `gisebo-01` sits at 5.768 V, 0.77 V clear of its edge.
+
+It matters because of **gisebo-05**, which is solar: its 3.85 V edge *gates the solar bonus*, and a li-ion pack lives on the 3.6–3.9 V plateau, so it will spend real time within ±19 mV of that edge — each flip swinging the interval 5 min ↔ 30 min, wake to wake. The season machine got 1 °C of hysteresis for exactly this class of problem; the voltage ladder never did.
 
 **Rule: degrade at the nominal edge, improve at nominal + 50 mV.** Asymmetric on purpose — react promptly to a failing pack, recover reluctantly. The protective response is never delayed, and 50 mV comfortably exceeds the ±19 mV noise band.
 
@@ -555,7 +561,9 @@ There is **no application-level formatter**. Both live devices carry their **own
 
 More decisively: **gisebo-01 is production and frozen**, so a combined decoder could never be deployed there without reproducing its exact output schema byte-for-byte — including the `version: 5` bug and the phantom entries. The drift argument for combining assumed one artifact serving every device. That is not achievable.
 
-**So: leave gisebo-01's and gisebo-04's decoders alone. Write a fresh one for gisebo-05, pinned at `FIRMWARE_VERSION = 7`.** The drift risk moves from "two files diverge" to "the new decoder is the only one maintained", which is the honest position — the old two are frozen records, not living code.
+**So: leave gisebo-01's and gisebo-04's decoders alone. Write a fresh one for gisebo-05, pinned at `FIRMWARE_VERSION = 7`.** There is nothing to combine — gisebo-01's decoder is frozen and then **retired**, because gisebo-05 *replaces* it at cutover. Two decoders during development, one after. The old two are frozen records in `decoders/`, not living code, and the drift argument does not apply to files nobody maintains.
+
+The `FIRMWARE_VERSION` constant survives this and is still worth having: it is what lets the S01-04 harness exercise v5/v6/v7 semantics against one file, and it documents at a glance which firmware a decoder is pinned to.
 
 - Per-device constant, the only thing not derivable from the payload:
   ```js
