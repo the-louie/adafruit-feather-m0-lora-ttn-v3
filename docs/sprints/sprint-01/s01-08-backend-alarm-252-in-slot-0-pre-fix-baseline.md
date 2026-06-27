@@ -9,6 +9,10 @@
 
 The one-interval lag cannot be confirmed from current telemetry: no reboots in the capture window and no DEV units, so the 85 °C → sentinel-252 signature has never had a chance to appear.
 
+**Re-checked 2026-07-17 against the full storage window** (139 uplinks, 2026-07-15 → 07-17 — everything TTN retains, 32 more than the original dump): **still zero f_cnt resets on either unit, still zero 252 sentinels.** Both units have run uninterrupted for the entire retained history. The `{1, 7, 13}` sequence signature holds across all 139.
+
+This is not evidence of absence — it is absence of evidence. There has been no reboot to observe. Which is precisely why this alarm must exist *before* the fix ships: the next natural reboot is the only chance to capture the pre-fix baseline, TTN retains roughly 3 days, and nobody will be watching at the moment it happens.
+
 This alarm must exist **before** the item 1 fix ships, so the next natural reboot captures the pre-fix baseline. Ship the fix first and the evidence is gone for good.
 
 ## Steps
