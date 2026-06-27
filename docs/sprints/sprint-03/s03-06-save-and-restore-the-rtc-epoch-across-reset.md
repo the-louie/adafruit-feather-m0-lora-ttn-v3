@@ -15,11 +15,11 @@ The join-failure path sleeps 15 minutes *then* resets, so the epoch can be captu
 
 1. Read `rtc.getEpoch()` after the 15-minute `deepSleep`, immediately before `NVIC_SystemReset()`.
 2. Stash it in the `.noinit` struct.
-3. On boot, if state is valid and the clock was valid, restore the epoch — plus the 15 minutes slept, which the RTC did count before the reset.
+3. On boot, if state is valid and the clock was valid, restore the epoch **as stored — do not add the sleep back**. The epoch is read *after* the `deepSleep` returns, so the RTC has already counted those 15 minutes into it. Adding them again would put the clock 15 minutes fast on every join-failure reset. (An earlier draft of this task said to add them; that was wrong.) The only genuinely uncounted time is between the epoch read and the RTC being reconfigured after reboot — milliseconds, and below the resolution of anything that consumes the clock.
 4. Keep the clock-valid flag honest: a restored epoch is still valid, a cold-booted one is not.
 
 ## Done when
 
 - [ ] Epoch survives the join-failure reset path.
-- [ ] The 15-minute sleep is accounted for.
+- [ ] The stored epoch is restored verbatim; the 15 minutes are NOT added back.
 - [ ] Clock-valid semantics stay correct across the reset.

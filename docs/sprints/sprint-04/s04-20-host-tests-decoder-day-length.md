@@ -2,7 +2,7 @@
 
 **Estimate:** 2 h
 **Backlog item:** TODO #7
-**Depends on:** S03-15
+**Depends on:** S04-19
 **Needs hardware:** no
 
 ## Context

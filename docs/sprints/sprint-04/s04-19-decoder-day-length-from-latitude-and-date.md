@@ -15,7 +15,7 @@ Note this may be a **backend-only** calculation: the backend has the uplink time
 
 1. Decide first: does the *firmware* need day length, or only the backend? Prefer the backend — it is free there.
 2. If firmware: solar declination + hour angle, ~20 lines. Watch float cost on a SAMD21 with no FPU (fine at one call per wake).
-3. Use the fixed latitude constant (S03-17).
+3. Use the fixed latitude constant (S04-21).
 
 ## Done when
 

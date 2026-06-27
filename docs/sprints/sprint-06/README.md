@@ -21,7 +21,7 @@ The hardware ETA is later than sprint 03, so verification could not be folded in
 
 **The `idle(750)` bug is PROD-only.** It cannot be verified on a DEV-strapped unit — the DEV path always used an `os_runloop_once()` loop and was never affected. Verification needs a **strapped PROD unit with USB detached**, which means no serial and debugging over LoRa. That asymmetry is exactly how the bug survived for months.
 
-**Solar cannot be observed in DEV.** USB puts 5 V on the pin the panel feeds, so the Schottky blocks the panel and the INA219 reads ~0 mA on a 5 V bus. That is why solar bring-up (sprint 07) runs on a bench PSU with telemetry over the air.
+**Serial and solar are mutually exclusive — DEV mode and solar are not.** USB puts 5 V on the pin the panel feeds, so the Schottky blocks the panel and the INA219 reads ~0 mA on a 5 V bus. But DEV mode is set by the strap, not by USB: strap DEV with USB unplugged and you get FPort 21, no serial, and real solar. Sprint 07 bring-up uses exactly that, with telemetry over the air.
 
 ## Working agreement
 

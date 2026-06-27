@@ -283,6 +283,10 @@ A `.noinit` struct guarded by a magic word and a **layout version**. A soft rese
 
 Contents: season state, **latched voltage-band state** (item 8's hysteresis makes `voltage_offset` stateful, not a pure function of `vbat`), `currentIntervalIndex`, `lastTempC`, uplink counter, boot counter, RTC epoch, sun-presence EWMA, harvest accumulator.
 
+**Deliberately NOT preserved: `dataBuffer` and `ramCount`.** Up to six buffered samples are lost on every join-failure reset, and that is correct rather than an oversight. The decoder extrapolates per-sample timestamps backwards from the uplink time assuming **uniform spacing at byte 0's interval**. Samples that straddle a reset do not have uniform spacing — the join-failure path burns 3 minutes of join attempts, 15 minutes of sleep, then a reboot and a fresh join, so a preserved buffer would carry a multi-interval hole that byte 0 cannot express. Preserving them would hand the backend confidently mis-timestamped data; dropping them costs at most six samples and the rejoin's fast-flush restarts the series cleanly.
+
+If a future protocol carries per-sample timestamps rather than extrapolating, revisit — the objection is to the *extrapolation contract*, not to the data.
+
 Read the RTC epoch after the 15-minute sleep, stash it, reset, restore on boot.
 
 ### Verification
@@ -355,7 +359,7 @@ The SAMD21 RTC counts through standby, and the Feather M0 carries an external 32
   This still needs S06-03 to confirm on hardware, but it turns "unverifiable seam" into "specific claim to check".
 - **Wall clock** seeded once via `DeviceTimeReq` on the first uplink after join. With this crystal one acquisition holds for months (~4 s/day), so it is a one-shot, not an ongoing dependency. Only arrives in an RX window after an uplink, and can simply not land.
 
-  **Verified against MCCI LMIC v6.0.1 source** (`/code/libraries/arduino-lmic`), correcting two earlier assumptions:
+  **Verified against MCCI LMIC v6.0.1 source** ([mcci-catena/arduino-lmic](https://github.com/mcci-catena/arduino-lmic), `src/lmic/`), correcting two earlier assumptions:
 
   - **`LMIC_ENABLE_DeviceTimeReq` defaults to 1** (`src/lmic/config.h:175-177`) — it does **not** need adding to `lmic_project_config.h`. An earlier draft said it did; that was wrong. Nothing to configure, and S02-17 loses that half of its scope.
   - **The callback does not carry the time.** The signature is `void cb(void *pUserData, int flagSuccess)` (`lmic.h:467`) — success/fail only. The time must be fetched inside the callback via `LMIC_getNetworkTimeReference(&ref)`, which fills `{ ostime_t tLocal; lmic_gpstime_t tNetwork; }` (`lmic.h:476-481`). An earlier draft assumed the epoch arrived as a callback argument.
@@ -381,7 +385,7 @@ The SAMD21 RTC counts through standby, and the Feather M0 carries an external 32
 
 Host tests for GPS→UTC conversion (including the `tLocal` compensation and the leap-second constant) and the degraded path. The double-`begin()` interaction still needs hardware — S06-03, now testing a specific claim rather than a vague seam.
 
-The library is cloned at `/code/libraries/arduino-lmic` (v6.0.1) for source reference.
+Source reference: [mcci-catena/arduino-lmic](https://github.com/mcci-catena/arduino-lmic) v6.0.1. A local clone may exist outside the repo; do not rely on a machine-specific path.
 
 ---
 
@@ -698,4 +702,4 @@ Things that cannot be verified any other way:
 
 ### Notes
 
-**DEV mode can never see real solar.** USB serial puts 5 V on the same pin the panel feeds, so the Schottky blocks the panel and the INA219 reads ~0 mA on a 5 V bus. Serial logs and real solar are mutually exclusive by construction. Bring-up needs a bench PSU on the panel input with telemetry read over the air on FPort 21.
+**Serial and solar are mutually exclusive — DEV mode and solar are not.** USB puts 5 V on the same pin the panel feeds, so the Schottky blocks the panel and the INA219 reads ~0 mA on a 5 V bus. But **DEV mode is set by the strap (pin 11), not by USB presence**: strap DEV and leave USB unplugged and you get FPort 21, the busy-wait sleep path, no serial (the `while (!Serial)` wait simply times out) — and the panel feeding the USB pin normally, so the INA219 sees real solar. That is exactly what S07-04 does. The thing you cannot have is serial logs *while* observing solar; telemetry goes over the air instead.

@@ -2,7 +2,7 @@
 
 **Dates:** 2026-07-30 (Thu) → 2026-08-12 (Wed)
 **Capacity:** 1 developer, ~30 h effective
-**Planned:** 20 tasks, ~33 h — **over capacity by ~3 h**; S02-06 (decoder work, not firmware) is the first candidate to push to sprint 03 if it bites
+**Planned:** 21 tasks, ~35 h — **over capacity by ~5 h**, knowingly. Dates are soft (see the plan index); if it bites, S02-06 is decoder work rather than firmware and moves to sprint 03 cleanly.
 
 ## Goal
 
@@ -44,6 +44,7 @@ Task 08 is the load-bearing one: a host-side 40-wake simulation that asserts eve
 | 18 | Dev-note the refactor | 1 h | 4 |
 | 19 | VBAT ADC averaging and primary voltage-band hysteresis | 2 h | 1, 8 |
 | 20 | Host tests voltage hysteresis under noise | 2 h | 8 |
+| 21 | v4 readiness guards | 2 h | — |
 
 ## The mitigation that got added late
 

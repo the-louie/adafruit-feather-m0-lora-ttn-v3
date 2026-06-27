@@ -24,6 +24,8 @@ Note this touches the **live** decoder promoted in S01-03, and the fleet is not 
    const FIRMWARE_VERSION = 7;
    ```
    Decoders are set per device in TTN, and with two units where a reflash is a site visit, provisioning knows what is flashed. Use it **only** for the counter semantics.
+
+   **Keep the declaration on its own line, in a fixed form.** The S01-04 harness substitutes it by regex before eval so it can exercise v5/v6/v7 against the real file — TTN formatters take no configuration, so there is no cleaner hook, and anything that lets the tested file diverge from the pasted file is how TODO #13 happened. Do not compile test scaffolding into the artifact.
 2. **Derive the `version` output field** from length and the constant. The live decoder currently hardcodes `version: 5` and reports it for `gisebo-01`'s 9-byte v6 payloads — a static string, not a derived value. It caused a false diagnosis during planning; fix it rather than working around it.
 3. Rename `sequence` → `uplink_counter` when `FIRMWARE_VERSION >= 7`, so changed semantics are visible rather than silently reinterpreted. At 6, keep reporting it as a wake counter.
 4. Remove `rebootDetected` for FPorts 10/20 at any version — it has never worked at any version.

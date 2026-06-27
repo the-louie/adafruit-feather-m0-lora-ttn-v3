@@ -9,7 +9,7 @@
 
 `CFG_eu868` must be set in the library's `lmic_project_config.h` and is not settable from the sketch — the firmware `#error`s without it. That is an invisible build-environment requirement, which is exactly how a working build becomes unreproducible.
 
-**`LMIC_ENABLE_DeviceTimeReq` does NOT need adding** — verified against MCCI LMIC v6.0.1 (`src/lmic/config.h:175-177`), it defaults to 1. An earlier draft of this task said otherwise and was wrong. Library cloned at `/code/libraries/arduino-lmic` for reference.
+**`LMIC_ENABLE_DeviceTimeReq` does NOT need adding** — verified against MCCI LMIC v6.0.1 (`src/lmic/config.h:175-177`), it defaults to 1. An earlier draft of this task said otherwise and was wrong. Source: [mcci-catena/arduino-lmic](https://github.com/mcci-catena/arduino-lmic).
 
 ## Steps
 

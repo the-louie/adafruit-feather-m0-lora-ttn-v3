@@ -14,8 +14,23 @@ A soft reset does not physically clear SRAM — only the C runtime zeroes `.bss`
 ## Steps
 
 1. `persist.h`: struct with magic word + layout version + payload.
-2. Contents: season state, `currentIntervalIndex`, `lastTempC`, uplink counter, boot counter, RTC epoch, sun EWMA, harvest accumulator.
-3. Validity: magic match AND version match. Either failing → cold boot.
+2. Contents:
+   ```c
+   struct PersistState {
+     uint32_t magic;       // fixed constant
+     uint16_t version;     // bump on ANY field change
+     uint16_t crc;         // over everything below
+     // ---- body ----
+     uint8_t  seasonState, voltageState, currentIntervalIndex, uplinkCounter, bootCounter;
+     float    surfaceTempC, sunEwma;
+     uint32_t rtcEpoch;
+     uint16_t harvestMilliAmpHours;
+   } __attribute__((section(".noinit")));
+   ```
+   `voltageState` is required: S02-19's hysteresis makes `voltage_offset` latched state, not a pure function of `vbat`.
+3. Validity: magic AND version AND **crc(body)**. Any failing → cold boot.
+   **Magic + version alone is not enough.** They catch layout changes and clean cold boots; they do not catch corruption. This design leans on a physical claim — that SRAM survives a soft reset — and a brief power interruption decays RAM *partially*: long enough to corrupt the body, short enough to leave a 32-bit magic word standing. The result is a confident restore from garbage, which is the exact failure the version guard exists to prevent, arriving through a different door. S06-06 tests this on hardware; without a CRC there is no plan for when it fails.
+4. Add a `static_assert` on `sizeof(PersistState)` so a field change nobody versioned fails the build rather than the field.
 4. Document the rule loudly: **bump the version on any field change.**
 
 ## Done when

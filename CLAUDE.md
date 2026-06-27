@@ -2,7 +2,7 @@
 
 Battery-powered LoRaWAN water-tank temperature sensor. An Adafruit Feather M0 LoRa (SAMD21 + RFM95) reads a DS18B20 via OneWire, batches six readings in RAM, uplinks a 9-byte payload to The Things Network over OTAA, and deep-sleeps between wakes. Region is **EU868** and the firmware refuses to compile without it (`#error` on `CFG_eu868`).
 
-The whole firmware is one sketch: `adafruit-feather-m0-lora-ttn-2.ino`. `ttn-decoder-v6.js` is the matching payload formatter, pasted into the TTN console by hand.
+The whole firmware is one sketch: `adafruit-feather-m0-lora-ttn-2.ino`. **`ttn-decoder-v6.js` is NOT what runs in production** — the live TTN formatter is length-aware, extrapolates per-sample timestamps, and reports `version: 5`; the repo copy is a stale artifact of unknown provenance (TODO #13).
 
 ## Architecture
 
@@ -11,7 +11,7 @@ Two-phase flow, no application-level OS jobs:
 1. **Commissioning** — while `LMIC.devaddr == 0`, `loop()` only spins `os_runloop_once()`. Never sleeps during join. In PROD, 3 minutes without a join triggers a 15-minute deep sleep and `NVIC_SystemReset()`.
 2. **Operational** — wake → read sensor → buffer → uplink if due → sleep. Uplinks block on a `volatile bool txComplete` set from `EV_TXCOMPLETE`, with a 2-minute timeout that calls `LMIC_clrTxData()`.
 
-Uplink fires when the buffer hits `batchTarget` (6) or on `wakeCounter == 1` (the first reading after join — "fast-flush"). `ramCount` is cleared **only** after a confirmed `EV_TXCOMPLETE`; a timeout keeps the batch for the next cycle.
+Uplink fires when the buffer hits `batchTarget` (6) or on `wakeCounter == 1` — which the comments call the "fast-flush after join" but **is not**: `wakeCounter` is 4-bit, so it wraps to 1 every 16 wakes and re-fires with a partial batch (TODO #2). `ramCount` is cleared **only** after a confirmed `EV_TXCOMPLETE`; a timeout keeps the batch for the next cycle.
 
 ## Design rules
 
@@ -48,7 +48,9 @@ DEV can't deep-sleep or idle without dropping USB — the native USB peripheral 
 | 1–2 | 12-bit battery offset from 3000 mV, then 4-bit sequence in the low nibble of byte 2 |
 | 3–8 | Six temperatures, newest first |
 
-Temperature byte: `0` = -10 °C, `200` = +30 °C at 0.2 °C/step; `250` = no value, `251` = too cold, `252` = too warm. Battery: `0` = 3.000 V, `4095` = 7.095 V, clamped both ends. Sequence is `wakeCounter & 0x0F`; the decoder reads `sequence == 0` as a reboot. Mode comes from the FPort, never from a payload byte.
+Temperature byte: `0` = -10 °C, `200` = +30 °C at 0.2 °C/step; `250` = no value, `251` = too cold, `252` = too warm. Battery: `0` = 3.000 V, `4095` = 7.095 V, clamped both ends. Mode comes from the FPort, never from a payload byte.
+
+Sequence is `wakeCounter & 0x0F`. The decoder reads `sequence == 0` as a reboot — **it has never once fired**, because the value only ever takes {1, 7, 13}. A free-running 4-bit counter cannot distinguish a reboot from a wraparound in principle; the real reboot signal is `f_cnt` resetting in TTN metadata, which costs no payload at all (TODO #2).
 
 Interval index → minutes: `[unused, 1, 5, 15, 30, 60, 120, 360, 720, 1440, 10080]`. Byte 0 is sent every time so the backend can extrapolate timestamps across an interval change mid-history.
 
@@ -71,7 +73,9 @@ Two behaviors worth knowing when reasoning about the algorithm:
 
 Arduino IDE / arduino-cli, board **Adafruit Feather M0**, with MCCI LoRaWAN LMIC, ArduinoLowPower, OneWire, and DallasTemperature. `CFG_eu868` must be set in the library's `lmic_project_config.h` — it is not settable from the sketch. **DIO1 must be physically jumpered to pin 6**; the pin map assumes it.
 
-There is no automated test suite. Verification is flashing a strapped DEV board and watching the serial log, plus running payload hex through the decoder in the TTN console.
+**There is no automated test suite and no test hardware** — units are ordered but arrive later than sprint 03. Everything currently ships verified by compilation alone; sprints 06–07 verify retroactively. Building the executable checks is sprint 01–02 work (a Node decoder harness and host-side firmware tests).
+
+Note a DEV board cannot verify everything: the `idle(750)` defect is **PROD-only by construction**, because the DEV path uses an `os_runloop_once()` loop instead. That asymmetry is why it survived for months.
 
 ## Conventions
 
@@ -80,6 +84,23 @@ There is no automated test suite. Verification is flashing a strapped DEV board 
 - `TODO.md` holds detailed items (problem, solution, verification); `TODO-summarized.md` mirrors each as one `title - complexity - estimated time - summary` line plus a summary at the bottom. The two are edited together. Drop items once fully implemented, and keep partial work at the top regardless of priority.
 - `.cursor/skills/master-plan/` and `.cursor/skills/domain-knowledge/` are the authoritative statements of the design rules and the LoRaWAN/LMIC background. They are **gitignored** (`.cursor` in `.gitignore`), so they exist only locally — read them before substantial work, and keep them in sync when a design rule changes.
 - This directory is its own git repo, separate from the sibling `waveshare-rp2040-lora-ttn` project. Commit in the repo you changed.
+
+## Where the work is tracked
+
+- **`TODO.md`** — 14 work items, including two **confirmed production defects** (see below). `TODO-summarized.md` mirrors it one line per item.
+- **`docs/sprints/`** — 7 sprints, ~116 tasks of 1–2 h. `docs/sprints/README.md` is the index and states the plan's own risks.
+- **`docs/solar-variant-design.md`** — the agreed design for the solar/li-ion variant, including the protocol versioning scheme (v6 current, v7 = new work) and the rejected alternatives.
+- **`docs/multi-sensor-v4-analysis.md`** — analysis only, nothing scheduled: what v3 must do so adding box/air/depth sensors in v4 stays cheap.
+- **`docs/dev-notes/real-world-data__20260716.json`** — 107 production uplinks. The evidence for both confirmed defects.
+
+## Confirmed defects — do not trust current PROD data
+
+Both proven from the 2026-07-16 capture, not from reasoning:
+
+- **`LowPower.idle(750)` does not wait.** `ArduinoLowPower::setAlarmIn()` does `rtc.setAlarmEpoch(now + millis/1000)` — integer division, so 750 ms becomes a zero-second alarm and it returns early. The DS18B20 read then returns the *previous* conversion, so **every PROD temperature reading is lagged one wake interval**. PROD-only: the DEV path spends the window in an `os_runloop_once()` loop, which is exactly why bench testing never found it.
+- **The fast-flush fires every 16 wakes**, not once per join — `wakeCounter` is 4-bit and wraps, re-triggering `wakeCounter == 1` with a partial batch. Sequence takes only {1, 7, 13} across 107 uplinks, so **`rebootDetected` has never once fired**.
+
+The `{1, 7, 13}` signature identifies un-reflashed units.
 
 ## Known gaps
 

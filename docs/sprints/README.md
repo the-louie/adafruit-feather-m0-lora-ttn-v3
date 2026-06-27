@@ -14,7 +14,15 @@ Backlog items live in `TODO.md` at the repo root. Design decisions behind the so
 | [06](sprint-06/) | 2026-09-24 → 10-07 | Core on-device verification | 12 | 🟡 Gated on delivery |
 | [07](sprint-07/) | 2026-10-08 → 10-21 | Solar bring-up and field readiness | 12 | 🟡 Gated on delivery |
 
-Sprint 06 and 07 dates are **provisional**. Hardware ETA is "later than sprint 03" and not firm.
+Sprint 06 and 07 dates are **provisional**. Hardware ETA is "later than sprint 03" and not firm; S05-18 is the readiness review that dates or formally parks them.
+
+## Dates are soft — this plan runs at ~99% capacity with no slack
+
+Sprints 01–05 total **~151 h against ~150 h of capacity**. Sprints 02 (~35 h), 04 (~32 h) and 05 (~33 h) run over; 01 (~27 h), 03 (~24 h) and both verification sprints run under. Accepted deliberately 2026-07-17 rather than padded or cut.
+
+**What that means in practice:** there is no room for a surprise, and this plan has already been surprised twice — both confirmed defects were found *during planning*, from data that arrived mid-flight. Sprint 02 is where those defects get fixed against hardware nobody has yet, so it is the sprint most likely to find a third. **Expect the tail to move.** Treat the dates as sequencing, not commitments, and do not let anyone downstream read them as delivery promises.
+
+Sprints 06–07 each carry a 4 h remediation buffer; sprints 01–05 carry none. If slack is ever wanted, S05-12 (historical lag correction — analysis of past data, blocks nothing shipping) is the cheapest thing to drop.
 
 ## Working agreement
 
@@ -41,7 +49,7 @@ Supercap and over-discharge protection are still outstanding — they depend on 
 
 **The `idle(750)` bug is PROD-only.** It cannot be verified on a DEV-strapped unit — the DEV path always used an `os_runloop_once()` loop and was never affected. Verification needs a strapped PROD unit with USB detached: no serial, debugging over LoRa. That asymmetry is exactly how the bug survived for months.
 
-**Solar cannot be observed in DEV.** USB puts 5 V on the pin the panel feeds, so the Schottky blocks the panel and the INA219 reads ~0 mA on a 5 V bus. Serial logs and real solar are mutually exclusive by construction — bring-up runs on a bench PSU with telemetry over the air on FPort 21.
+**Serial and solar are mutually exclusive — DEV mode and solar are not.** USB puts 5 V on the same pin the panel feeds, so the Schottky blocks the panel and the INA219 reads ~0 mA on a 5 V bus. But **DEV mode is set by the strap (pin 11), not by USB presence**: strap DEV and leave USB unplugged and you get FPort 21, the busy-wait sleep path, no serial (the `while (!Serial)` wait simply times out) — and the panel feeding the USB pin normally, so the INA219 sees real solar. That is exactly what S07-04 does. The thing you cannot have is serial logs *while* observing solar; telemetry goes over the air instead.
 
 ## What the 2026-07-16 data changed
 

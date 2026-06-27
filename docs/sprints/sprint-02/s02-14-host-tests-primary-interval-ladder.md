@@ -12,7 +12,7 @@ Pin the current behaviour before the solar variant arrives to complicate it. The
 ## Steps
 
 1. Test each season base: Summer 4, Fall/Spring 5, Winter 7.
-2. Test each voltage offset band: ≥5.0 → 0, ≥4.3 → 1, ≥3.5 → 2, below → 3.
+2. Test each voltage offset band **with hysteresis** (S02-19): degrade at the nominal edge (5.0/4.3/3.5), improve only at nominal + 50 mV. A bare-threshold test would pass against the defective code — S02-20 owns the dithering test, this one owns the ladder.
 3. Test the clamp: Winter + critical battery must give 10, not 11.
 4. Replay real production values: 5.768 V at 16.8 °C must give index 4 — that is gisebo-01's actual behaviour and a real-world anchor for the test suite.
 
