@@ -89,7 +89,19 @@ The sketch's `#ifndef CFG_eu868 / #error` guard is verified working: both a miss
 
 **DIO1 must be physically jumpered to pin 6**; the pin map assumes it.
 
-**There is no automated test suite and no test hardware** — units are ordered but arrive later than sprint 03. Everything currently ships verified by compilation alone; sprints 06–07 verify retroactively. Building the executable checks is sprint 01–02 work (a Node decoder harness and host-side firmware tests).
+## Tests
+
+```
+npm test          # or: node test/run.js
+```
+
+No framework, no dependencies — a script with an exit code. `test/harness.js` loads a decoder **as text** and evals it, so the file under test is byte-for-byte the file pasted into TTN; adding `module.exports` for `require()` would let them drift, which is exactly how `ttn-decoder-v6.js` diverged from what actually ran.
+
+Live vectors in `test/fixtures-live.json` replay real production uplinks, and **the expected values are TTN's own `decoded_payload`** — production truth, not our assumptions. If our understanding of the protocol is wrong, the tests fail.
+
+The harness self-tests too: a suite that silently does nothing is worse than none.
+
+**There is no on-device test hardware** — units are ordered but arrive later than sprint 03. Everything currently ships verified by compilation alone; sprints 06–07 verify retroactively. Building the executable checks is sprint 01–02 work (a Node decoder harness and host-side firmware tests).
 
 Note a DEV board cannot verify everything: the `idle(750)` defect is **PROD-only by construction**, because the DEV path uses an `os_runloop_once()` loop instead. That asymmetry is why it survived for months.
 

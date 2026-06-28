@@ -1,0 +1,8 @@
+{
+  "name": "adafruit-feather-m0-lora-ttn",
+  "private": true,
+  "description": "Decoder and firmware-logic tests. No dependencies on purpose.",
+  "scripts": {
+    "test": "node test/run.js"
+  }
+}

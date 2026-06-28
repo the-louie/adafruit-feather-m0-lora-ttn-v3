@@ -1,0 +1,179 @@
+{
+  "_comment": "Generated from docs/dev-notes/real-world-data__20260716.json. expected[] is TTN's OWN decoded_payload -- production truth, not our assumption.",
+  "vectors": [
+    {
+      "device": "gisebo-01",
+      "fPort": 10,
+      "bytes": [
+        4,
+        173,
+        7,
+        134,
+        134,
+        134,
+        134,
+        135,
+        135
+      ],
+      "recvTime": "2026-07-15T01:15:34.814328546Z",
+      "expected": {
+        "battery_v": 5.768,
+        "entries": [
+          {
+            "temperature": 16.8,
+            "timestamp": "2026-07-15T01:15:34.814Z"
+          },
+          {
+            "temperature": 16.8,
+            "timestamp": "2026-07-15T00:45:34.814Z"
+          },
+          {
+            "temperature": 16.8,
+            "timestamp": "2026-07-15T00:15:34.814Z"
+          },
+          {
+            "temperature": 16.8,
+            "timestamp": "2026-07-14T23:45:34.814Z"
+          },
+          {
+            "temperature": 17,
+            "timestamp": "2026-07-14T23:15:34.814Z"
+          },
+          {
+            "temperature": 17,
+            "timestamp": "2026-07-14T22:45:34.814Z"
+          }
+        ],
+        "sequence": 7,
+        "version": 5
+      },
+      "fcnt": 376
+    },
+    {
+      "device": "gisebo-01",
+      "fPort": 10,
+      "bytes": [
+        4,
+        172,
+        161,
+        136,
+        135,
+        135,
+        135,
+        250,
+        250
+      ],
+      "recvTime": "2026-07-15T06:15:56.580267270Z",
+      "expected": {
+        "battery_v": 5.762,
+        "entries": [
+          {
+            "temperature": 17.2,
+            "timestamp": "2026-07-15T06:15:56.580Z"
+          },
+          {
+            "temperature": 17,
+            "timestamp": "2026-07-15T05:45:56.580Z"
+          },
+          {
+            "temperature": 17,
+            "timestamp": "2026-07-15T05:15:56.580Z"
+          },
+          {
+            "temperature": 17,
+            "timestamp": "2026-07-15T04:45:56.580Z"
+          }
+        ],
+        "sequence": 1,
+        "version": 5
+      },
+      "fcnt": 378
+    },
+    {
+      "device": "gisebo-04",
+      "fPort": 10,
+      "bytes": [
+        139,
+        151,
+        95,
+        95,
+        95,
+        95,
+        95,
+        95
+      ],
+      "recvTime": "2026-07-15T00:19:06.560562608Z",
+      "expected": {
+        "battery_v": 5.233,
+        "entries": [
+          {
+            "temperature": 9,
+            "timestamp": "2026-07-15T00:19:06.560Z"
+          },
+          {
+            "temperature": 9,
+            "timestamp": "2026-07-15T00:14:06.560Z"
+          },
+          {
+            "temperature": 9,
+            "timestamp": "2026-07-15T00:09:06.560Z"
+          },
+          {
+            "temperature": 9,
+            "timestamp": "2026-07-15T00:04:06.560Z"
+          },
+          {
+            "temperature": 9,
+            "timestamp": "2026-07-14T23:59:06.560Z"
+          },
+          {
+            "temperature": 9,
+            "timestamp": "2026-07-14T23:54:06.560Z"
+          }
+        ],
+        "sequence": 7,
+        "version": 5
+      },
+      "fcnt": 709
+    },
+    {
+      "device": "gisebo-04",
+      "fPort": 10,
+      "bytes": [
+        140,
+        1,
+        93,
+        93,
+        93,
+        93,
+        250,
+        250
+      ],
+      "recvTime": "2026-07-15T01:09:27.531165990Z",
+      "expected": {
+        "battery_v": 5.24,
+        "entries": [
+          {
+            "temperature": 8.6,
+            "timestamp": "2026-07-15T01:09:27.531Z"
+          },
+          {
+            "temperature": 8.6,
+            "timestamp": "2026-07-15T01:04:27.531Z"
+          },
+          {
+            "temperature": 8.6,
+            "timestamp": "2026-07-15T00:59:27.531Z"
+          },
+          {
+            "temperature": 8.6,
+            "timestamp": "2026-07-15T00:54:27.531Z"
+          }
+        ],
+        "sequence": 1,
+        "version": 5
+      },
+      "fcnt": 711
+    }
+  ]
+}
