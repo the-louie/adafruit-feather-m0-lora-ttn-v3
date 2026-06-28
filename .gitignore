@@ -1,4 +1,5 @@
-﻿.cursor
+﻿.cursor/*
+!.cursor/skills/
 
 # Secrets — never commit (contains TTN_TOKEN)
 .env

@@ -50,7 +50,13 @@ Decoders are set **per device** in the TTN console, and with two units — where
 const FIRMWARE_VERSION = 7;
 ```
 
-**One combined decoder, not one per variant.** The live decoder already branches on length for 8 vs 9 bytes, so 15-byte extends an existing pattern, and bytes 0–8 parsing stays in one place. Two files would drift — which is exactly how `ttn-decoder-v6.js` drifted from what actually runs (see TODO #13).
+**Superseded 2026-07-17 by the export — do NOT combine.** This section argued for one decoder on the grounds that the live one branched on length and that two files would drift. Both premises were wrong, and `decoders/` now holds the evidence:
+
+- There is **no application-level formatter**. Each device carries its own, and they **differ**. Neither branches on length — that was inferred from `decoded_payload` and was mistaken.
+- **gisebo-01 is production and frozen**, so a combined decoder could never deploy there without reproducing its exact output schema byte-for-byte, `version: 5` bug and all.
+- gisebo-01 is then **retired** — gisebo-05 replaces it. There is nothing to combine.
+
+**Write a fresh decoder for gisebo-05, pinned at `FIRMWARE_VERSION = 7`.** The old two are frozen records in `decoders/`, not living code; the drift argument does not apply to files nobody maintains.
 
 Everything except the counter semantics derives from length and FPort. The constant resolves only the one thing the bytes genuinely cannot.
 

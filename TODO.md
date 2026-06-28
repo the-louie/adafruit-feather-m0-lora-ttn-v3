@@ -84,7 +84,7 @@ DEV keeps its `os_runloop_once()` loop, with the same elapsed-time basis.
 
 ### Notes
 
-**Historical impact:** every PROD reading taken by a v6 unit is time-shifted one interval late. `gisebo-01` is v6 and has been since at least f_cnt 376. `gisebo-04` is still on the 8-byte V5 firmware, whose source is not in this repo — **whether V5 has the same defect is unknown and must be established** (item 13).
+**Historical impact:** every PROD reading taken by a v6 unit is time-shifted one interval late. `gisebo-01` is v6 and has been since at least f_cnt 376. `gisebo-04` is still on the 8-byte V5 firmware, whose source is not in this repo — **whether V5 has the same defect is unknown and must be established** (item 14).
 
 Retroactive correction is possible in principle: shift each v6 PROD series back one interval. Byte 0 records the interval, so the shift is computable per message — but only for v6 units, and only where the interval was stable across the shift. For V5 units there is no interval byte at all, so correction depends on the assumed 5-minute cadence.
 
@@ -178,7 +178,7 @@ This makes the status byte's 3-bit boot counter and its cold-boot/soft-reset fla
 
 ## 3. Regenerate test payload vectors
 
-**Status:** Not started — blocked on item 13 (harness targets the wrong decoder without it), then items 2, 8, 9
+**Status:** Not started — **unblocked**: the live decoders are exported to `decoders/` and the stale repo copy is deleted, so the harness now has a real target. Still sequenced behind items 2, 8, 9 for the vectors themselves.
 **Complexity:** Low
 **Estimated time:** 5–7 h
 **Sprint:** 01 (harness + primary vectors), 04 (solar vectors)
@@ -641,36 +641,6 @@ Feather M0, DS18B20, INA219, panel, 18650 pack. ETA "later than sprint 03", not 
 **Subzero charging** is accepted: cells are consumable on a 5–10 year cycle. The rationale holds better than it first appears — plating is strongly rate-dependent and the charge rate is panel-limited to ~30 mA into ~6000 mAh, about C/200. The MCP73831 will ask for 100 mA and never get it. C/200 into a cold cell is far gentler than the C/2-and-up regimes the "never charge below freezing" rule addresses. Consequence: replacement timing becomes a telemetry problem (item 10).
 
 **The floor rests on an unmeasured number.** The brief's figures imply ~0.075 mAh per wake; a model of the wake (750 ms conversion plus an occasional 3 s TX) suggests closer to 0.002 mAh. At 5-minute sampling that is 28 mAh/day versus 7.6 mAh/day. The harvest accumulator will settle it from field data within a few months. Until then index 2 is defensible mainly because the healthy-battery gate self-corrects.
-
----
-
-## 13. `ttn-decoder-v6.js` is not what runs in production
-
-**Status:** Not started — **blocks item 3; do early**
-**Complexity:** Low
-**Estimated time:** 3–4 h
-**Sprint:** 01
-
-### Problem — found 2026-07-16 from `docs/dev-notes/real-world-data__20260716.json`
-
-The decoder running in the TTN console is **not** the one in this repo. Evidence from `decoded_payload`:
-
-- It reports `"version": 5`; `ttn-decoder-v6.js:32` sets `data.version = 6`.
-- It emits `entries: [{temperature, timestamp}, ...]` with **extrapolated per-sample timestamps**; the repo file emits a flat `temperatures` array with no timestamps.
-- It **omits** null slots entirely (a 4-sample batch yields 4 entries); the repo file pushes `null` for byte 250.
-- It correctly decodes **both** 8-byte and 9-byte payloads, branching on length; the repo file rejects anything under 9 bytes outright (`:15`).
-
-So the deployed decoder is strictly more capable than the repo's, and the repo's is a stale artifact of unknown provenance. This matters immediately: item 3 plans to validate test vectors against `ttn-decoder-v6.js`, which would validate **an artifact nobody runs**.
-
-### Solution
-
-1. Export the live decoder from the TTN console and commit it as the source of truth.
-2. Diff against `ttn-decoder-v6.js` and establish which is intended. Reconcile or delete the repo copy — do not leave two.
-3. Only then proceed with item 3's vectors, and item 9's v7 work, against the real decoder.
-
-### Notes
-
-The timestamp extrapolation in the live decoder is exactly the consumer of byte 0 that the design assumes — and it is also the thing the item 1 lag silently corrupts, since it extrapolates from an uplink timestamp that no longer corresponds to when the sample was taken.
 
 ---
 

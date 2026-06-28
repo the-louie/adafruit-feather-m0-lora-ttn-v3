@@ -2,7 +2,9 @@
 
 Battery-powered LoRaWAN water-tank temperature sensor. An Adafruit Feather M0 LoRa (SAMD21 + RFM95) reads a DS18B20 via OneWire, batches six readings in RAM, uplinks a 9-byte payload to The Things Network over OTAA, and deep-sleeps between wakes. Region is **EU868** and the firmware refuses to compile without it (`#error` on `CFG_eu868`).
 
-The whole firmware is one sketch: `adafruit-feather-m0-lora-ttn-2.ino`. **`ttn-decoder-v6.js` is NOT what runs in production** — the live TTN formatter is length-aware, extrapolates per-sample timestamps, and reports `version: 5`; the repo copy is a stale artifact of unknown provenance (TODO #13).
+The whole firmware is one sketch: `adafruit-feather-m0-lora-ttn-2.ino`.
+
+**Decoders live in `decoders/`, exported verbatim from TTN.** There is no application-level formatter — each device carries its own, and they differ. `ttn-decoder-v6.js` used to sit in this root and was **not** what production ran; it was deleted 2026-07-17 after causing a false diagnosis. Git has it if anyone ever needs it.
 
 ## Architecture
 
@@ -54,7 +56,7 @@ Sequence is `wakeCounter & 0x0F`. The decoder reads `sequence == 0` as a reboot 
 
 Interval index → minutes: `[unused, 1, 5, 15, 30, 60, 120, 360, 720, 1440, 10080]`. Byte 0 is sent every time so the backend can extrapolate timestamps across an interval change mid-history.
 
-Any change to the payload must land in `transmitBatchAndWait()` and `ttn-decoder-v6.js` together.
+Any change to the payload must land in `transmitBatchAndWait()` and the device's decoder in `decoders/` together.
 
 ## Interval selection
 
