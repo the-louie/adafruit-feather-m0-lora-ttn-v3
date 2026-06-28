@@ -12,7 +12,17 @@ Replace gisebo-01 with gisebo-05 at the production site, and migrate telegraf/in
 
 **The webhook recipient discards data that does not fit.** During development that is a gift: gisebo-05 can sit on a bench transmitting v7 into the live pipeline for weeks and be silently dropped, disturbing nothing.
 
-It is also exactly what makes the swap dangerous — **if the pipeline is not migrated, the site goes dark in grafana silently, because telegraf drops rather than errors.** Nobody gets an alert. A dashboard just stops moving.
+**Correction from the real `telegraf.conf` (2026-07-17):** an earlier draft said an unmigrated pipeline would make the site go dark. **It would not.** The config is `json_v2` with `optional = true` on every field, and v7 keeps the *same paths* for the two that matter:
+
+| field | path | v7 outcome |
+|---|---|---|
+| `battery_v` | `decoded_payload.battery_v` | **lands** — path unchanged |
+| `entries[]` | `decoded_payload.entries` | **lands** — same shape, same `timestamp` key |
+| `version` | `decoded_payload.version` | lands (7 instead of 5) |
+| `sequence` | `decoded_payload.sequence` | absent in v7; `optional = true` so **no error**, the field just stops |
+| solar fields, `uplink_counter`, `interval_index` | not mapped | silently dropped |
+
+So an unmigrated cutover is **degraded, not dark**: temperature and battery keep flowing, `sequence` stops, and the solar data never arrives. That is a much softer failure than assumed — but it is still silent, and "the new sensor works, we just cannot see any of what we built it for" is a bad place to discover the pipeline was forgotten.
 
 So the sequencing inverts the usual risk. Do **not** swap and then migrate:
 
