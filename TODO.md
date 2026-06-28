@@ -84,7 +84,13 @@ DEV keeps its `os_runloop_once()` loop, with the same elapsed-time basis.
 
 ### Notes
 
-**Historical impact:** every PROD reading taken by a v6 unit is time-shifted one interval late. `gisebo-01` is v6 and has been since at least f_cnt 376. `gisebo-04` is still on the 8-byte V5 firmware, whose source is not in this repo — **whether V5 has the same defect is unknown and must be established** (item 14).
+**Historical impact — dated 2026-07-17 from git, see `docs/dev-notes/20260717-1230_dating-the-lag-and-clearing-v5.md`:**
+
+The defect was introduced by **`aad7bca`, 2026-03-09 12:03**, which replaced a working `delay(750)` with `LowPower.idle(750)` as a power optimisation. **The fix (S02-01) is that commit reverted.**
+
+**V5 is clear.** The 8-byte payload predates `aad7bca`, so V5-era firmware uses `delay(750)` and is **not** lagged. `gisebo-04`'s history is trustworthy and needs no caveat — which also removes the data-integrity half of item 14.
+
+**gisebo-01 is lagged**, but the start date is unprovable: there is a 21-minute window (11:42–12:03) where 9-byte firmware still had `delay(750)`, and nothing in telemetry distinguishes lagged from unlagged without an independent reference. Treat all of its 9-byte history as 30 minutes late.
 
 Retroactive correction is possible in principle: shift each v6 PROD series back one interval. Byte 0 records the interval, so the shift is computable per message — but only for v6 units, and only where the interval was stable across the shift. For V5 units there is no interval byte at all, so correction depends on the assumed 5-minute cadence.
 
@@ -661,7 +667,7 @@ Feather M0, DS18B20, INA219, panel, 18650 pack. ETA "later than sprint 03", not 
 ### Solution
 
 - Establish what firmware `gisebo-04` is running and whether that source exists anywhere. If it does not, that unit cannot be maintained or reasoned about — reflashing it to current v6 is the only way back to a known state.
-- Determine whether V5 shares the item 1 `idle(750)` defect. If its source is gone, this is unanswerable and the unit's entire history is uninterpretable.
+- ~~Determine whether V5 shares the item 1 `idle(750)` defect.~~ **Answered 2026-07-17 from git: it does not.** The 8-byte payload predates `aad7bca` (which introduced `idle(750)` at 12:03 on 2026-03-09), so V5 uses `delay(750)`. `gisebo-04`'s data is trustworthy. The missing source now matters only for maintenance, not for data integrity — and gisebo-04 is an uncommissioned fridge test, so maintenance matters little.
 - Decide the fleet reflash plan: both units to one firmware version, sequenced against the item 2 decoder change.
 
 ### Notes
