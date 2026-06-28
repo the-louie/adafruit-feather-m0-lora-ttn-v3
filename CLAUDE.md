@@ -66,7 +66,8 @@ Season is driven by temperature rather than voltage on purpose: a battery that r
 
 Two behaviors worth knowing when reasoning about the algorithm:
 
-- **Chemistry changes how much the battery ladder engages.** Alkaline AAs slope steadily from ~6.4 V down through all three bands, so the interval stretches gradually as intended. 2× 3 V lithium has a flat discharge curve — it sits above 5.0 V (offset 0) for most of its life, then drops through 4.3 and 3.5 quickly at the end. On lithium you get the seasonal baseline almost throughout, then a late cliff, not a gentle taper.
+- **Chemistry changes how much the battery ladder engages — and production telemetry now distinguishes the two.** Alkaline AAs slope steadily through the bands; 2× 3 V lithium sits flat for most of its life then falls off a cliff. Measured 2026-07-17: `gisebo-01` reads **+12.8 mV/°C (r = 0.93)** — alkaline's temperature coefficient — while `gisebo-04`, on lithium in a fridge, shows no correlation and drifts just **−2.5 mV/day** at a steady 9 °C. The telemetry identifies the chemistry without anyone opening the box.
+- **The cold-battery illusion is real and measured.** That +12.8 mV/°C extrapolates to ~321 mV of temperature-driven drift across a 25 °C season — a pack at constant charge reading a third of a volt lower in winter. This is exactly why season is driven by water temperature and never by voltage. See `docs/dev-notes/20260717-1100_battery-voltage-tracks-temperature-in-production.md`.
 - **Season steps one level per uplink.** The transitions are an `else if` chain, so a jump from Summer to <8 °C water reaches Fall/Spring on one uplink and Winter only on the next. `setup()` starts at `current_season_state = 2` (Summer), so a cold-start in winter takes two uplink cycles to settle — expect a rebooted device to transmit sooner than steady state for a short while.
 
 ## Build & test
