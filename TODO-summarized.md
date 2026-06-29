@@ -15,16 +15,16 @@ Tasks are broken down under `docs/sprints/sprint-NN/`.
 10. **Backend alarms and monitoring** - Low - 5–7 h - Uplinks are the only instrument. Probe misdetect (FPort 10 + battery <4.5 V) is the highest-value one — without it a loose INA219 connector silently parks a unit at a 7-day interval. Sprints 01, 05.
 11. **Hardware BOM decisions** - Research - 3–5 h remaining - *Partially resolved.* **No MPPT — decided 2026-07-17**: no energy case against ~10× surplus, the healthy-battery gate covers the signal risk, and the INA219's 128-sample averaging mitigates the measurement risk. First order placed (Feather, DS18B20, INA219, panel, pack). Supercap rating and over-discharge protection still open. Sprints 01, 07.
 12. **On-device verification** - Medium - 10–14 h - Hardware arrives later than sprint 03, so sprints 02–05 ship verified by compilation and host tests alone. Sprint 06 (core) and 07 (solar) verify retroactively, each with a 4 h remediation buffer.
-14. **The fleet runs two firmware versions, and V5's source is not in this repo** - Low - 2–3 h - `gisebo-01` on 9-byte v6, `gisebo-04` on 8-byte V5 whose source exists nowhere we know of. Whether V5 shares the item 1 defect may be unanswerable, which would make that unit's entire history uninterpretable. Sprint 01.
+
 
 ---
 
 ## Summary
 
-13 open items. Item 11 is partially resolved. **Item 13 (the repo decoder is not what runs) is DONE** — both live formatters exported to `decoders/`, diffed, and the stale `ttn-decoder-v6.js` deleted. Planned across 7 sprints in `docs/sprints/` (115 tasks, 1 developer, ~30 h per sprint).
+12 open items. Item 11 is partially resolved. **Items 13 and 14 are DONE.** **Item 13 (the repo decoder is not what runs) is DONE** — both live formatters exported to `decoders/`, diffed, and the stale `ttn-decoder-v6.js` deleted. Planned across 7 sprints in `docs/sprints/` (115 tasks, 1 developer, ~30 h per sprint).
 
 **Two confirmed defects lead the list**, both proven from the 2026-07-16 production capture rather than from reasoning. Item 1 means every PROD temperature reading is one interval late — plausible-looking and silently wrong. Item 2 means a third of all uplinks ever sent carry a short batch, and the reboot flag has never once fired. Neither was found by testing, because nothing executable ever checked the firmware↔decoder contract — which is what item 3 exists to fix, and why item 3's harness is scheduled before the vectors it will run.
 
-**Item 14 dropped in priority.** gisebo-04 turned out to be an uncommissioned test device in a fridge, not production, so its firmware source being missing costs little. And no unit is being reflashed at all: gisebo-01 is frozen then retired, and v7 targets gisebo-05, a new device.
+**Item 14 is closed, and its premise was false.** V5's source was never missing — it is at `1f6afc9`, tagged `v5-firmware`. Confirmed three ways: it contains `delay(750)` and no `LowPower.idle` (so **not lagged**); `sleepIntervalSeconds = 300` hardcoded with no dynamic-interval code (which independently explains gisebo-04's measured 5.03 min gap); and decoding a real gisebo-04 uplink with its layout reproduces TTN's output exactly. gisebo-04's data is trustworthy.
 
 **The plan's largest risk is unverified firmware.** Hardware arrives later than sprint 03, so sprint 04 picks the index-2 floor on a per-wake energy figure whose two estimates disagree by 35×, and sprint 03 ships an RTC ownership seam nobody can test. Sprints 06–07 verify retroactively and carry remediation buffers. With two units in the field and no bench, the first board to receive new firmware is a production board on a post at a lake.

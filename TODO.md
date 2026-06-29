@@ -650,32 +650,6 @@ Feather M0, DS18B20, INA219, panel, 18650 pack. ETA "later than sprint 03", not 
 
 ---
 
-## 14. The fleet runs two firmware versions, and V5's source is not in this repo
-
-**Status:** Not started
-**Complexity:** Low (investigation)
-**Estimated time:** 2–3 h
-**Sprint:** 01
-
-### Problem — found 2026-07-16
-
-- `gisebo-01` sends **9 bytes** — the v6 protocol in this repo.
-- `gisebo-04` sends **8 bytes** — the pre-interval-byte V5 protocol, whose firmware source **is not in this repo**.
-
-`gisebo-04`'s battery reads 5.233 V and is drifting toward the 5.0 V `VOLTAGE_HEALTHY_V` threshold; when it crosses, its interval moves from base to base+1. `gisebo-01` reads 5.768 V, water 16.8–19.0 °C, interval index 4 — which is exactly Summer base (≥16 °C) + `voltage_offset` 0 (≥5.0 V). **The interval algorithm is confirmed working in production.**
-
-### Solution
-
-- Establish what firmware `gisebo-04` is running and whether that source exists anywhere. If it does not, that unit cannot be maintained or reasoned about — reflashing it to current v6 is the only way back to a known state.
-- ~~Determine whether V5 shares the item 1 `idle(750)` defect.~~ **Answered 2026-07-17 from git: it does not.** The 8-byte payload predates `aad7bca` (which introduced `idle(750)` at 12:03 on 2026-03-09), so V5 uses `delay(750)`. `gisebo-04`'s data is trustworthy. The missing source now matters only for maintenance, not for data integrity — and gisebo-04 is an uncommissioned fridge test, so maintenance matters little.
-- Decide the fleet reflash plan: both units to one firmware version, sequenced against the item 2 decoder change.
-
-### Notes
-
-Two units, two protocols, one decoder, and one of the two firmwares has no source. Every item in this backlog that says "deployed units need a reflash" depends on resolving this first.
-
----
-
 ## 12. On-device verification
 
 **Status:** Gated on delivery — **hardware ordered 2026-07-17**, ETA later than sprint 03, not firm

@@ -58,3 +58,21 @@ Anyone correlating this series against weather, gisebo-04, or gisebo-05 needs to
 ## The fix is a revert
 
 S02-01 chose `delay(750)`. That is precisely `aad7bca` undone. The original code was right; the optimisation was the bug.
+
+---
+
+## Addendum (S01-05): the V5 source was never missing
+
+An earlier claim — repeated through `TODO.md` item 14 and several sprint tasks — was that "gisebo-04 runs firmware whose source is not in this repo". **That was wrong, and it was my error**: I checked HEAD, not history.
+
+**V5 is `1f6afc9` (2026-02-22), now tagged `v5-firmware`.** It is the last commit before `54f2828` introduced the 9-byte payload.
+
+Confirmed three independent ways:
+
+1. **Source:** `static uint8_t payload[8]`, `LMIC_setTxData2(currentFPort, payload, 8, 0)`, and the layout `payload[0] = uoffset >> 4; payload[1] = ((uoffset & 0x0F) << 4) | (wakeCounter & 0x0F);` — exactly what gisebo-04's live decoder reads.
+2. **Behaviour:** `sleepIntervalSeconds = 300;` hardcoded, with **no** `kIntervalSecondsByIndex` and no `calculate_interval_index`. A fixed 5-minute interval, no dynamic algorithm — which independently explains the 5.03 min wake interval measured from gisebo-04's real inter-uplink gaps.
+3. **Decode:** feeding a real gisebo-04 uplink (`f_cnt=709`, bytes `[139,151,95,95,95,95,95,95]`) through that layout yields battery **5.233 V**, sequence **7**, temps **9.0 ×6** — byte-for-byte what TTN reported.
+
+It also contains `delay(750)` and zero `LowPower.idle`, which is the third confirmation that **V5 is not lagged**.
+
+**Item 14 is closed.** The fleet does run two firmware versions, but that is now a benign, fully understood fact rather than an unknown: gisebo-01 on v6 (lagged, frozen, retired at cutover), gisebo-04 on `v5-firmware` (clean, fridge test, untouched), gisebo-05 on v7 (new).
