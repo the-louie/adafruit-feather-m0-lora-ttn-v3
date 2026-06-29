@@ -19,6 +19,7 @@
 #include <OneWire.h>
 #include <SPI.h>
 #include <hal/hal.h>
+#include "uplink_schedule.h"
 
 #define VBATPIN A7
 
@@ -90,12 +91,11 @@ static uint8_t currentFPort;
 static uint8_t current_season_state; // 0=Winter, 1=Fall/Spring, 2=Summer; updated only in interval calculation
 static float lastTempC;              // Latest water temp from readAndBufferSensors(); used when applying next interval
 static volatile bool txComplete = false;
-static uint8_t wakeCounter; // 4-bit sequence 0..15 for protocol; set to 0 in setup()
+static UplinkSchedule uplinkSched; // when to send, and the 4-bit uplink counter
 static uint32_t joinAttemptStart = 0;
 static bool joinSuccessBlinkPending = false;
 
 // Batch buffer: newest at index 0. Each entry 2 bytes (int16)
-static uint8_t ramCount = 0;
 static uint16_t dataBuffer[MAX_BATCH];
 
 // 1. Define the smart loggers
@@ -153,6 +153,7 @@ void onEvent(ev_t ev) {
     LMIC_setLinkCheckMode(0);
     LMIC_setDrTxpow(5, 14);
     joinSuccessBlinkPending = true; // Blink in loop() to avoid delay() inside LMIC callback
+    uplinkScheduleOnJoin(&uplinkSched); // arm the one-shot post-join flush
     break;
   case EV_JOIN_FAILED:
     logPrintln(F("EV_JOIN_FAILED"));
@@ -226,18 +227,15 @@ void readAndBufferSensors() {
   }
   dataBuffer[0] = (uint16_t)encodedTemp;
 
-  if (ramCount < batchTarget) {
-    ramCount++;
-  }
-  wakeCounter = (wakeCounter + 1) & 0x0F; // 4-bit sequence for protocol compatibility
+  uplinkScheduleOnSample(&uplinkSched);
 
   // Explicitly log the reading and buffer status
   logPrint(F("--> Measured Temp: "));
   logPrint(tempC);
   logPrint(F(" C. Buffer: "));
-  logPrint(ramCount);
+  logPrint(uplinkSched.ramCount);
   logPrint(F("/"));
-  logPrintln(batchTarget);
+  logPrintln(uplinkSched.batchTarget);
 }
 
 // Computes next interval index from water temp and battery voltage. Season state uses 1 C hysteresis
@@ -307,10 +305,10 @@ void transmitBatchAndWait() {
   if (offset > 4095) offset = 4095;
   uint16_t uoffset = (uint16_t)offset;
   payload[1] = (uint8_t)(uoffset >> 4);
-  payload[2] = (uint8_t)(((uoffset & 0x0FU) << 4) | (wakeCounter & 0x0FU));
+  payload[2] = (uint8_t)(((uoffset & 0x0FU) << 4) | uplinkScheduleCounterForPayload(&uplinkSched));
 
   for (uint8_t i = 0; i < 6; i++) {
-    if (i >= ramCount) {
+    if (i >= uplinkSched.ramCount) {
       payload[3 + i] = 250;
       continue;
     }
@@ -355,7 +353,11 @@ void transmitBatchAndWait() {
     uint8_t nextIndex = calculate_interval_index(lastTempC, vbat_volts);
     currentIntervalIndex = nextIndex;
     sleepIntervalSeconds = kIntervalSecondsByIndex[currentIntervalIndex];
-    ramCount = 0; // Clear buffer only after successful send; on timeout we retry next cycle
+    // Advances the uplink counter, clears the batch, and disarms the post-join
+    // flush. NOT called on timeout: ramCount and the counter are both preserved,
+    // so the retry carries the same counter value and the backend can tell a
+    // retry from a fresh uplink.
+    uplinkScheduleOnTxSuccess(&uplinkSched);
   }
 }
 
@@ -375,8 +377,7 @@ void setup() {
   uint8_t intervalIdx = (currentIntervalIndex > 10) ? 10 : currentIntervalIndex;
   sleepIntervalSeconds = kIntervalSecondsByIndex[intervalIdx];
   batchTarget = 6;
-  wakeCounter = 0;
-  ramCount = 0;
+  uplinkScheduleInit(&uplinkSched, batchTarget);
 
   // Read the strap: only runMode differs (USB/Serial, join timeout, sleep path still vary by mode)
   // LOW = Connected to GND (Development)
@@ -453,11 +454,15 @@ void loop() {
   }
   readAndBufferSensors();
 
-  // "FAST-FLUSH" LOGIC:
-  // If this is the very first reading after joining (wakeCounter == 1),
-  // or if the buffer is full, send it immediately!
-  if (wakeCounter == 1 || ramCount >= batchTarget) {
-    logPrintln(F("*** TRIGGERING UPLINK (First Join or Buffer Full) ***"));
+  // Send on the first uplink after joining, or when the batch is full.
+  //
+  // This used to read `wakeCounter == 1`, which was NOT "first after join":
+  // wakeCounter is 4-bit, so it wrapped to 1 every 16 wakes and re-fired with a
+  // partial batch. A third of every uplink ever sent carried 4 samples and two
+  // dead bytes. The flag is explicit now; never infer "first" from a counter
+  // that wraps.
+  if (uplinkScheduleShouldSend(&uplinkSched)) {
+    logPrintln(F("*** TRIGGERING UPLINK (first after join, or batch full) ***"));
     transmitBatchAndWait();
   }
 
