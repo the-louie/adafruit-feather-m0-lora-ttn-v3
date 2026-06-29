@@ -176,15 +176,41 @@ void onEvent(ev_t ev) {
   }
 }
 
+// DS18B20 conversion time at 12-bit resolution.
+#define DALLAS_CONV_MS 750
+
 void readAndBufferSensors() {
+  // Measure the conversion window from requestTemperatures(), NOT from the end
+  // of whatever we do inside it. The solar policy will read the INA219 in here
+  // (~68 ms of averaging); that must shrink the remaining wait, not extend the
+  // wake to 818 ms.
+  uint32_t convStart = millis();
   sensors.requestTemperatures();
 
-  // PROD: USB detached; low-power idle during Dallas conversion. DEV: keep USB and LMIC alive with os_runloop_once().
   if (runMode == 0) {
-    LowPower.idle(750);
+    // PROD: plain delay for the remainder of the conversion window.
+    //
+    // NOT LowPower.idle(). ArduinoLowPower's alarm has ONE-SECOND granularity
+    // -- setAlarmIn() does `rtc.setAlarmEpoch(now + millis/1000)`, so idle(750)
+    // truncates to a zero-second alarm and returns immediately. The DS18B20 has
+    // not finished converting, and getTempCByIndex() then returns the PREVIOUS
+    // conversion: every reading lagged one wake interval. That was aad7bca
+    // (2026-03-09), a power optimisation that saved nothing measurable --
+    // quiescent draw dominates -- and silently corrupted PROD data for four
+    // months. This is that commit reverted.
+    //
+    // delay() is safe HERE SPECIFICALLY: the radio is idle during sensor
+    // conversion, so the no-delay()-near-the-radio rule does not apply. Do not
+    // "optimise" this back.
+    uint32_t elapsed = millis() - convStart;
+    if (elapsed < DALLAS_CONV_MS) {
+      delay(DALLAS_CONV_MS - elapsed);
+    }
   } else {
-    uint32_t startWait = millis();
-    while (millis() - startWait < 750) {
+    // DEV: spend the window servicing LMIC so USB and the MAC layer stay alive.
+    // (This path was never affected by the idle() defect -- which is exactly why
+    // bench testing could never have found it.)
+    while (millis() - convStart < DALLAS_CONV_MS) {
       os_runloop_once();
       delay(1); // Small delay to prevent watchdog resets
     }
