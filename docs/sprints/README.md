@@ -14,6 +14,7 @@ Backlog items live in `TODO.md` at the repo root. Design decisions behind the so
 | [06](sprint-06/) | 2026-09-24 → 10-07 | Core on-device verification | 12 | 🟡 Gated on delivery |
 | [07](sprint-07/) | 2026-10-08 → 10-21 | Solar bring-up and field readiness | 12 | 🟡 Gated on delivery |
 | [08](sprint-08/) | 2026-10-22 → 11-04 | Cutover: gisebo-05 replaces gisebo-01 | 12 | 🟡 Gated on 06–07 |
+| [99](sprint-99-backlog/) | — | Operator backlog — needs access, decisions, or hardware | — | ⏸️ Parked |
 
 Sprint 06 and 07 dates are **provisional**. Hardware ETA is "later than sprint 03" and not firm; S05-18 is the readiness review that dates or formally parks them.
 
