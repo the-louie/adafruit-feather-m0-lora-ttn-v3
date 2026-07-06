@@ -20,14 +20,31 @@
 #include <SPI.h>
 #include <hal/hal.h>
 #include "uplink_schedule.h"
+#include "season.h"
+#include "power_policy.h"
+#include "policy_primary.h"
+#include "payload.h"
 
 #define VBATPIN A7
 
-// Two dummy reads let the SAMD21 ADC sampling capacitor settle through the 100k/100k divider.
+// Two dummy reads let the SAMD21 ADC sampling capacitor settle through the
+// 100k/100k divider, then average 16 to beat the noise down.
+//
+// A SINGLE sample carries ~+/-19 mV (6.45 mV LSB), which is enough to flip a
+// voltage band every wake for a pack sitting on an edge -- and on the solar
+// variant that edge gates the solar bonus. Averaging 16 cuts the noise 4x at a
+// cost of microseconds, inside a wake that now deliberately spends 750 ms.
+// This attacks the dither at source; voltageOffsetHyst() absorbs what is left.
+// They are complements, not alternatives.
+#define VBAT_SAMPLES 16
 static float getBatteryVoltage(void) {
   analogRead(VBATPIN);
   analogRead(VBATPIN);
-  return analogRead(VBATPIN) * (2.0f * 3.3f / 1024.0f);
+  uint32_t sum = 0;
+  for (uint8_t i = 0; i < VBAT_SAMPLES; i++) {
+    sum += analogRead(VBATPIN);
+  }
+  return ((float)sum / VBAT_SAMPLES) * (2.0f * 3.3f / 1024.0f);
 }
 
 #define VBAT_VOLTS() getBatteryVoltage()
@@ -69,18 +86,8 @@ static const uint32_t kIntervalSecondsByIndex[11] = {
     300, 60, 300, 900, 1800, 3600, 7200, 21600, 43200, 86400, 604800
 };
 
-// Temperature- and battery-controlled interval: thresholds and season base indices
-#define TEMP_SUMMER_ENTER_C  16
-#define TEMP_SUMMER_LEAVE_C 15
-#define TEMP_MID_ENTER_C    8
-#define TEMP_MID_LEAVE_C    7
-#define VOLTAGE_HEALTHY_V   5.0f
-#define VOLTAGE_LOW_V       4.3f
-#define VOLTAGE_CRITICAL_V  3.5f
-#define BASE_INDEX_SUMMER   4   // 30 min
-#define BASE_INDEX_MID      5   // 60 min
-#define BASE_INDEX_WINTER   7   // 360 min
-#define MAX_INTERVAL_INDEX  10
+// Season thresholds and base indices now live in season.h.
+// Voltage bands and the interval clamp live in power_policy.h / policy_primary.h.
 
 // Application state (set once in setup from STRAP_PIN)
 static uint8_t runMode; // 0 = PROD, 1 = DEV
@@ -88,8 +95,15 @@ static uint32_t sleepIntervalSeconds;
 static uint8_t batchTarget;
 static uint8_t currentIntervalIndex; // 0-10; from setup() and after successful uplink (temperature/battery algorithm)
 static uint8_t currentFPort;
-static uint8_t current_season_state; // 0=Winter, 1=Fall/Spring, 2=Summer; updated only in interval calculation
-static float lastTempC;              // Latest water temp from readAndBufferSensors(); used when applying next interval
+// The active power policy. Chosen at boot by probing for the INA219 (sprint 03);
+// until then, always the primary-cell variant.
+static PrimaryCellPolicy primaryPolicy;
+static PowerPolicy *policy = &primaryPolicy;
+
+// The season-driving water temperature, from the 0.5-1 m sensor.
+// NOT "the temperature": v4 adds air, box and depth sensors, and only THIS one
+// drives the season. See docs/multi-sensor-v4-analysis.md.
+static float surfaceTempC;
 static volatile bool txComplete = false;
 static UplinkSchedule uplinkSched; // when to send, and the 4-bit uplink counter
 static uint32_t joinAttemptStart = 0;
@@ -125,21 +139,6 @@ const lmic_pinmap lmic_pins = {
     .rst = 4,
     .dio = {3, 6, LMIC_UNUSED_PIN},
 };
-
-// Returns raw centidegrees -1000..3000 (-10°C..+30°C), or sentinels: 0xFFFF invalid/NaN,
-// values < -10°C → too cold (251), > +30°C → too warm (252). Used for 9-byte protocol.
-static int16_t encodeTemperature(float tempC) {
-  if (tempC != tempC || tempC < -50.0f)
-    return (int16_t)0xFFFF;
-  if (tempC < -10.0f)
-    return (int16_t)0xFFFE; // too cold → 251
-  if (tempC > 30.0f)
-    return (int16_t)0xFFFD; // too warm → 252
-  int v = (int)(tempC * 100.0f);
-  if (v > 3000) v = 3000;
-  if (v < -1000) v = -1000;
-  return (int16_t)v;
-}
 
 void onEvent(ev_t ev) {
   logPrint(os_getTime());
@@ -188,6 +187,11 @@ void readAndBufferSensors() {
   uint32_t convStart = millis();
   sensors.requestTemperatures();
 
+  // The policy borrows part of the conversion window (SolarPolicy: ~68 ms of
+  // INA219 averaging). Because the wait below is measured from convStart, this
+  // SHRINKS the remaining delay rather than extending the wake.
+  policy->onWake();
+
   if (runMode == 0) {
     // PROD: plain delay for the remainder of the conversion window.
     //
@@ -218,8 +222,8 @@ void readAndBufferSensors() {
   }
 
   float tempC = sensors.getTempCByIndex(0);
-  lastTempC = tempC;
-  int16_t encodedTemp = encodeTemperature(tempC);
+  surfaceTempC = tempC;
+  int16_t encodedTemp = encodeWaterTemperature(tempC);
 
   // Shift right by 1; only indices 1..5 (never 6) to avoid buffer overrun
   for (int i = 5; i > 0; i--) {
@@ -230,62 +234,12 @@ void readAndBufferSensors() {
   uplinkScheduleOnSample(&uplinkSched);
 
   // Explicitly log the reading and buffer status
-  logPrint(F("--> Measured Temp: "));
+  logPrint(F("--> Measured surface temp: "));
   logPrint(tempC);
   logPrint(F(" C. Buffer: "));
   logPrint(uplinkSched.ramCount);
   logPrint(F("/"));
   logPrintln(uplinkSched.batchTarget);
-}
-
-// Computes next interval index from water temp and battery voltage. Season state uses 1 C hysteresis
-// to avoid flapping at boundaries. Cold-weather battery illusion: low voltage in cold does not
-// permanently lock long interval; when temp rises, season can transition and base can shorten.
-// Final index is clamped to 1..MAX_INTERVAL_INDEX (memory-crash edge case: winter + critical battery).
-static uint8_t calculate_interval_index(float tempC, float voltageV) {
-  // Invalid/NaN temp: do not change season state; use previous state for base index
-  if (tempC != tempC || tempC < -50.0f || tempC > 60.0f) {
-    // Keep current_season_state unchanged; fall through to base index from it
-  } else {
-    if (current_season_state == 2 && tempC < (float)TEMP_SUMMER_LEAVE_C) {
-      current_season_state = 1;
-    } else if (current_season_state == 1 && tempC >= (float)TEMP_SUMMER_ENTER_C) {
-      current_season_state = 2;
-    } else if (current_season_state == 1 && tempC < (float)TEMP_MID_LEAVE_C) {
-      current_season_state = 0;
-    } else if (current_season_state == 0 && tempC >= (float)TEMP_MID_ENTER_C) {
-      current_season_state = 1;
-    }
-  }
-
-  uint8_t base_index;
-  if (current_season_state == 2) {
-    base_index = BASE_INDEX_SUMMER;
-  } else if (current_season_state == 1) {
-    base_index = BASE_INDEX_MID;
-  } else {
-    base_index = BASE_INDEX_WINTER;
-  }
-
-  uint8_t voltage_offset = 0;
-  if (voltageV >= VOLTAGE_HEALTHY_V) {
-    voltage_offset = 0;
-  } else if (voltageV >= VOLTAGE_LOW_V) {
-    voltage_offset = 1;
-  } else if (voltageV >= VOLTAGE_CRITICAL_V) {
-    voltage_offset = 2;
-  } else {
-    voltage_offset = 3;
-  }
-
-  uint8_t final_index = base_index + voltage_offset;
-  if (final_index > MAX_INTERVAL_INDEX) {
-    final_index = MAX_INTERVAL_INDEX;
-  }
-  if (final_index < 1) {
-    final_index = 1;  // Index 0 is unused; always schedule with at least 1 min
-  }
-  return final_index;
 }
 
 void transmitBatchAndWait() {
@@ -294,44 +248,23 @@ void transmitBatchAndWait() {
     return;
   }
 
-  // Protocol: 9 bytes. Byte 0 = interval index (0-10). Bytes 1-2 = 12-bit battery offset + 4-bit sequence. Bytes 3-8 = 6 temps: 250 null, 251 too cold, 252 too warm, else (centidegrees/100+10)/0.2.
-  static uint8_t payload[9];
-  uint8_t intervalByte = (currentIntervalIndex > 10) ? 10 : currentIntervalIndex;
-  payload[0] = intervalByte;
-
+  // Core owns bytes 0-8; the policy appends after that (0 for primary, 6 for
+  // solar). Layout and encoding live in payload.h.
+  static uint8_t payload[PAYLOAD_CORE_LEN + 8];
   uint32_t vbat_mv = (uint32_t)(VBAT_VOLTS() * 1000.0f);
-  int32_t offset = (int32_t)vbat_mv - 3000;
-  if (offset < 0) offset = 0;
-  if (offset > 4095) offset = 4095;
-  uint16_t uoffset = (uint16_t)offset;
-  payload[1] = (uint8_t)(uoffset >> 4);
-  payload[2] = (uint8_t)(((uoffset & 0x0FU) << 4) | uplinkScheduleCounterForPayload(&uplinkSched));
-
-  for (uint8_t i = 0; i < 6; i++) {
-    if (i >= uplinkSched.ramCount) {
-      payload[3 + i] = 250;
-      continue;
-    }
-    uint16_t raw = dataBuffer[i];
-    if (raw == 0xFFFFu) {
-      payload[3 + i] = 250;
-    } else if (raw == 0xFFFEu) {
-      payload[3 + i] = 251;
-    } else if (raw == 0xFFFDu) {
-      payload[3 + i] = 252;
-    } else {
-      float degC = (int16_t)raw / 100.0f;
-      if (degC < -10.0f) payload[3 + i] = 251;
-      else if (degC > 30.0f) payload[3 + i] = 252;
-      else payload[3 + i] = (uint8_t)((degC + 10.0f) / 0.2f + 0.5f);
-    }
-  }
+  uint8_t len = payloadBuildCore(payload,
+                                 currentIntervalIndex,
+                                 vbat_mv,
+                                 uplinkScheduleCounterForPayload(&uplinkSched),
+                                 dataBuffer,
+                                 uplinkSched.ramCount);
+  len += policy->appendPayload(payload + len);
 
   if (runMode == 1) {
     digitalWrite(LED_PIN, HIGH);
   }
   txComplete = false;
-  LMIC_setTxData2(currentFPort, payload, 9, 0);
+  LMIC_setTxData2(currentFPort, payload, len, 0);
 
   // Blocking wait for EV_TXCOMPLETE (with 2-minute safety timeout)
   uint32_t waitStart = millis();
@@ -349,9 +282,10 @@ void transmitBatchAndWait() {
     digitalWrite(LED_PIN, LOW);
   }
   if (txComplete) {
+    // The ONLY place the interval changes -- which is what makes byte 0 mean
+    // "the interval these six samples were taken at".
     float vbat_volts = (float)vbat_mv / 1000.0f;
-    uint8_t nextIndex = calculate_interval_index(lastTempC, vbat_volts);
-    currentIntervalIndex = nextIndex;
+    currentIntervalIndex = policy->decideInterval(surfaceTempC, vbat_volts);
     sleepIntervalSeconds = kIntervalSecondsByIndex[currentIntervalIndex];
     // Advances the uplink counter, clears the batch, and disarms the post-join
     // flush. NOT called on timeout: ramCount and the counter are both preserved,
@@ -371,9 +305,9 @@ void setup() {
   pinMode(STRAP_PIN, INPUT_PULLUP);
   delay(100); // Longer delay to ensure pull-up is stable
 
-  currentIntervalIndex = 2; // 5 min initial; then from temperature/battery algorithm after each successful TX
-  current_season_state = 2; // Summer; first TX will use real temp and hysteresis
-  lastTempC = 15.0f;       // Safe default until first reading
+  currentIntervalIndex = 2; // 5 min initial; then from the policy after each successful TX
+  policy->begin();          // starts at Summer; hysteresis settles it from real readings
+  surfaceTempC = 15.0f;     // safe default until the first reading
   uint8_t intervalIdx = (currentIntervalIndex > 10) ? 10 : currentIntervalIndex;
   sleepIntervalSeconds = kIntervalSecondsByIndex[intervalIdx];
   batchTarget = 6;
@@ -387,7 +321,7 @@ void setup() {
   } else {
     runMode = 0; // PROD
   }
-  currentFPort = (runMode == 0) ? 10 : 20; // 10 = PROD, 20 = DEV
+  currentFPort = policy->fport(runMode); // 10/20 primary, 11/21 solar
 
   // 3. Start feedback: LED on 1s (both modes)
   pinMode(LED_PIN, OUTPUT);
