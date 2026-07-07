@@ -104,6 +104,10 @@ static PowerPolicy *policy = &primaryPolicy;
 // NOT "the temperature": v4 adds air, box and depth sensors, and only THIS one
 // drives the season. See docs/multi-sensor-v4-analysis.md.
 static float surfaceTempC;
+
+// True when A2 carries more than one DS18B20, so index 0 cannot be attributed
+// to the surface sensor. Set once in setup(); see the guard there.
+static bool sensorBusAmbiguous = false;
 static volatile bool txComplete = false;
 static UplinkSchedule uplinkSched; // when to send, and the 4-bit uplink counter
 static uint32_t joinAttemptStart = 0;
@@ -221,7 +225,10 @@ void readAndBufferSensors() {
     }
   }
 
-  float tempC = sensors.getTempCByIndex(0);
+  // An ambiguous bus reports NaN, which encodeWaterTemperature maps to a null
+  // slot and seasonUpdate ignores -- so the season holds rather than drifting on
+  // a reading from the wrong sensor.
+  float tempC = sensorBusAmbiguous ? NAN : sensors.getTempCByIndex(0);
   surfaceTempC = tempC;
   int16_t encodedTemp = encodeWaterTemperature(tempC);
 
@@ -343,6 +350,35 @@ void setup() {
 
   // 5. Peripherals & LMIC
   sensors.begin();
+
+  // v4 GUARD: more than one device on this bus means we cannot attribute a
+  // reading to the surface sensor.
+  //
+  // getTempCByIndex(0) returns devices in ROM-ADDRESS SORT ORDER -- an arbitrary
+  // property of the silicon. The day someone wires a second DS18B20 to A2 to try
+  // it out, the reading silently becomes a DIFFERENT sensor, with no error and no
+  // symptom except wrong data. v4 adds box/air/depth using PIN-PER-ROLE precisely
+  // so this cannot happen; this guard covers the interim.
+  // See docs/multi-sensor-v4-analysis.md.
+  //
+  // NOTE what this deliberately does NOT do: it does not stop the device.
+  //
+  //   count == 0  -> a dead or unplugged sensor. Keep running. getTempCByIndex
+  //                  returns -127, which encodeWaterTemperature already maps to
+  //                  a null slot, so the backend sees "alive but blind" AND
+  //                  keeps getting battery telemetry. Halting here would turn a
+  //                  failed sensor into a silent decommission -- strictly worse.
+  //   count  > 1  -> ambiguous. Report nulls rather than a reading we cannot
+  //                  attribute, but keep uplinking. Loud in the data, not dark.
+  //
+  // Reporting nothing is recoverable. Reporting the wrong sensor's water
+  // temperature as if it were the surface is not.
+  sensorBusAmbiguous = (sensors.getDeviceCount() > 1);
+  if (sensorBusAmbiguous) {
+    logPrint(F("ERROR: more than one DS18B20 on A2, found "));
+    logPrintln(sensors.getDeviceCount());
+    logPrintln(F("Temperatures will report as null until the bus has exactly one device."));
+  }
   os_init();
   LMIC_reset();
   LMIC_setClockError((uint32_t)MAX_CLOCK_ERROR * 5 / 100);
