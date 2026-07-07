@@ -11,7 +11,22 @@
 
 **`LMIC_ENABLE_DeviceTimeReq` does NOT need adding** — verified against MCCI LMIC v6.0.1 (`src/lmic/config.h:175-177`), it defaults to 1. An earlier draft of this task said otherwise and was wrong. Source: [mcci-catena/arduino-lmic](https://github.com/mcci-catena/arduino-lmic).
 
-## Steps
+## DONE 2026-07-17 — by S01-00
+
+The setup script does all of it, and the results are in the S01-00 dev-note:
+
+- `CFG_eu868` documented in CLAUDE.md, with the trap: the stock file ships with
+  **`CFG_us915` enabled**, so naively adding `eu868` defines two regions and LMIC
+  refuses to build. Disable every region, enable exactly one.
+- **MCCI LMIC confirmed v6.0.1** — the exact version the DeviceTimeReq contract
+  in TODO #6 was verified against. All library versions pinned in the dev-note.
+- `LMIC_ENABLE_DeviceTimeReq` **needs nothing**: it defaults to 1 in
+  `src/lmic/config.h`. An earlier draft of this task said otherwise and was wrong.
+- `reference/lmic_project_config.h` committed as the known-good copy.
+- The `#error` guard **proven**, not assumed: a missing region and the stock
+  us915 default are both refused at compile time.
+
+## Original steps
 
 1. Document the required `lmic_project_config.h` contents in CLAUDE.md — chiefly `CFG_eu868`.
 2. **Confirm the installed library is MCCI LMIC v6.0.1** and pin it. The DeviceTimeReq API contract in item 6 was verified against that version; an older LMIC may lack `LMIC_requestNetworkTime()` entirely.
