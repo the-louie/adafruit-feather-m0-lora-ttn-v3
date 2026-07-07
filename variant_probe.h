@@ -1,0 +1,88 @@
+#pragma once
+//
+// Which power variant is this board? Decided at boot by probing the I2C bus for
+// the INA219. Found -> solar. Absent -> primary-cell.
+//
+// One firmware image for every board -- the same reason latitude lives in the
+// decoder and keys are derived from the silicon ID. There is no per-unit
+// configuration in this system, and there must not be.
+//
+// The I2C mechanics need Arduino (Wire), so those live in the .ino. This header
+// holds only the DECISION logic and the config-register sanity check, so the
+// host tests can exercise the part that actually has judgement in it: how many
+// probe attempts, and what a given bus result means.
+//
+// ---------------------------------------------------------------------------
+// The failure mode this must get right
+// ---------------------------------------------------------------------------
+//
+// The probe conflates "has an INA219" with "is a li-ion pack". A dead sensor, a
+// loose wire, or a hung bus makes a SOLAR board boot the PRIMARY policy -- whose
+// 5.0/4.3/3.5 V bands all sit above a full li-ion's 4.2 V. Every reading then
+// scores voltage_offset 3 and the unit pins itself at interval index 10 (7 days)
+// PERMANENTLY. A component fault silently decommissions the unit.
+//
+// Two defences:
+//   * Retry the probe (a boot is rare; one transient glitch must not decide a
+//     whole session).
+//   * The FPort makes a misdetect observable to the backend: a solar device on
+//     FPort 10/20 failed to find its INA219. That alarm (S01-09) is the safety
+//     net for when the probe is wrong anyway.
+//
+#include <stdint.h>
+
+#define INA219_I2C_ADDR 0x40
+
+// INA219 config register (0x00) power-on default, per the datasheet. A bare
+// address ACK is not enough -- something else could sit at 0x40 -- so we also
+// confirm the config register reads its reset value.
+#define INA219_REG_CONFIG        0x00
+#define INA219_CONFIG_RESET_VALUE 0x399F
+
+#define PROBE_ATTEMPTS   3
+#define PROBE_RETRY_MS   50
+
+enum PowerVariant : uint8_t {
+  VARIANT_PRIMARY = 0,
+  VARIANT_SOLAR   = 1,
+};
+
+// The result of one physical probe attempt. Filled in by the .ino from Wire.
+struct ProbeResult {
+  bool    addressAcked;   // did 0x40 ACK its address?
+  bool    configRead;     // did we get a config register read back?
+  uint16_t configValue;   // ... and its value
+};
+
+// Is a single attempt a confident "INA219 present"?
+// Needs BOTH the ACK and the expected config value -- an ACK alone could be some
+// other 0x40 device, and a garbage config value means a flaky bus, not a sensor.
+inline bool probeAttemptFoundIna219(const ProbeResult *r) {
+  return r->addressAcked && r->configRead &&
+         r->configValue == INA219_CONFIG_RESET_VALUE;
+}
+
+// Decide the variant from a run of attempts.
+//
+// SOLAR if ANY attempt cleanly found the INA219. Retrying favours "present":
+// a real sensor that ACKs once is present, whereas noise that produces one bad
+// read across three tries is not a reason to boot the wrong policy. The cost of
+// missing a present INA219 (7-day interval, silent) is far worse than the cost
+// of a spurious solar detection (wrong bands, but LOUD -- the backend sees a
+// li-ion pack reading below 4.5 V).
+inline PowerVariant probeDecide(const ProbeResult *attempts, uint8_t n) {
+  for (uint8_t i = 0; i < n; i++) {
+    if (probeAttemptFoundIna219(&attempts[i])) return VARIANT_SOLAR;
+  }
+  return VARIANT_PRIMARY;
+}
+
+// The backend-side sanity check, mirrored here so the firmware can log a warning
+// too. A PRIMARY variant reading below this cannot be a healthy 6 V pack and is
+// almost certainly a solar board whose INA219 was not detected. No li-ion ever
+// reaches 4.5 V either, so the band between is empty and this cannot false-fire.
+#define PRIMARY_IMPLAUSIBLE_VBAT 4.5f
+
+inline bool primaryVbatImplausible(PowerVariant v, float vbat) {
+  return v == VARIANT_PRIMARY && vbat < PRIMARY_IMPLAUSIBLE_VBAT;
+}
