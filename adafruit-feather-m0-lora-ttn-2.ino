@@ -18,12 +18,17 @@
 #include <DallasTemperature.h>
 #include <OneWire.h>
 #include <SPI.h>
+#include <Wire.h>
+#include <RTCZero.h>
 #include <hal/hal.h>
 #include "uplink_schedule.h"
 #include "season.h"
 #include "power_policy.h"
 #include "policy_primary.h"
 #include "payload.h"
+#include "persist.h"
+#include "variant_probe.h"
+#include "timekeeping.h"
 
 #define VBATPIN A7
 
@@ -95,10 +100,27 @@ static uint32_t sleepIntervalSeconds;
 static uint8_t batchTarget;
 static uint8_t currentIntervalIndex; // 0-10; from setup() and after successful uplink (temperature/battery algorithm)
 static uint8_t currentFPort;
-// The active power policy. Chosen at boot by probing for the INA219 (sprint 03);
-// until then, always the primary-cell variant.
+// The active power policy. Chosen at boot by probing for the INA219.
 static PrimaryCellPolicy primaryPolicy;
+// SolarPolicy is added in sprint 04; the probe already selects for it (see setup).
 static PowerPolicy *policy = &primaryPolicy;
+static PowerVariant powerVariant = VARIANT_PRIMARY;
+
+// State that survives NVIC_SystemReset(). NOT initialised by the C runtime --
+// that is the whole point. Validity is checked in setup() (persist.h).
+__attribute__((section(".noinit"))) static PersistState persist;
+
+// Read-only view of the RTC. We NEVER call rtc.begin() on this instance:
+// RTCZero::begin(false) calls RTCreset(), which clears the counter unless
+// PM->RCAUSE flags a system/watchdog/external reset -- so a begin() during
+// normal operation would WIPE the time. ArduinoLowPower owns configuration
+// (forced once in setup via attachInterruptWakeup); getEpoch()/setEpoch() only
+// touch the clock register and do not test the instance's _configured flag.
+// See docs/dev-notes for the ownership seam (S03-10).
+RTCZero rtc;
+
+// Set true when we want a network-time reply on the next uplink (S03-11).
+static bool deviceTimeReqPending = false;
 
 // The season-driving water temperature, from the 0.5-1 m sensor.
 // NOT "the temperature": v4 adds air, box and depth sensors, and only THIS one
@@ -144,6 +166,62 @@ const lmic_pinmap lmic_pins = {
     .dio = {3, 6, LMIC_UNUSED_PIN},
 };
 
+// One physical INA219 probe attempt over Wire. The DECISION logic (how many
+// attempts, what a result means) is host-tested in variant_probe.h; this only
+// does the I2C.
+static ProbeResult probeIna219Once() {
+  ProbeResult r = {false, false, 0};
+
+  Wire.beginTransmission(INA219_I2C_ADDR);
+  r.addressAcked = (Wire.endTransmission() == 0);
+  if (!r.addressAcked) return r;
+
+  // Read the config register (0x00) and check it against the reset default.
+  Wire.beginTransmission(INA219_I2C_ADDR);
+  Wire.write(INA219_REG_CONFIG);
+  if (Wire.endTransmission(false) != 0) return r;   // repeated-start failed -> hung bus
+  if (Wire.requestFrom(INA219_I2C_ADDR, 2) != 2) return r;
+  uint16_t hi = Wire.read();
+  uint16_t lo = Wire.read();
+  r.configValue = (hi << 8) | lo;
+  r.configRead = true;
+  return r;
+}
+
+// Probe with retries and decide the variant. A boot is rare, so 3 attempts x
+// 50 ms is nothing against the delay(5000) we already spend on the radio -- and
+// one transient glitch must not decide a whole session (variant_probe.h).
+static PowerVariant probeVariant() {
+  ProbeResult attempts[PROBE_ATTEMPTS];
+  for (uint8_t i = 0; i < PROBE_ATTEMPTS; i++) {
+    attempts[i] = probeIna219Once();
+    if (probeAttemptFoundIna219(&attempts[i])) break;  // found -> no need to retry
+    if (i + 1 < PROBE_ATTEMPTS) delay(PROBE_RETRY_MS);
+  }
+  return probeDecide(attempts, PROBE_ATTEMPTS);
+}
+
+// DeviceTimeReq reply. Called by LMIC after the RX window (S03-12).
+// The callback carries only success/fail; the time is fetched separately.
+static void onNetworkTime(void *pUserData, int flagSuccess) {
+  (void)pUserData;
+  if (!flagSuccess) return;   // no reply this time; stay degraded, try again later
+
+  lmic_time_reference_t ref;
+  if (!LMIC_getNetworkTimeReference(&ref)) return;
+
+  // ref.tNetwork is GPS seconds at ref.tLocal (an ostime_t). Compensate for the
+  // time elapsed since that sample, or the clock lands seconds slow.
+  uint32_t elapsedMs = osticks2ms(os_getTime() - ref.tLocal);
+  uint32_t utc = gpsToUnixUtc((uint32_t)ref.tNetwork, elapsedMs);
+
+  if (!utcPlausible(utc)) return;   // a reply that did not really land
+
+  rtc.setEpoch(utc);
+  persist.clockValid = 1;
+  deviceTimeReqPending = false;
+}
+
 void onEvent(ev_t ev) {
   logPrint(os_getTime());
   logPrint(": ");
@@ -157,6 +235,12 @@ void onEvent(ev_t ev) {
     LMIC_setDrTxpow(5, 14);
     joinSuccessBlinkPending = true; // Blink in loop() to avoid delay() inside LMIC callback
     uplinkScheduleOnJoin(&uplinkSched); // arm the one-shot post-join flush
+    // Ask for network time on the next uplink, unless we already have a valid
+    // clock preserved across a soft reset. One acquisition holds for months at
+    // this crystal's ~4 s/day, so this is a one-shot, not a standing dependency.
+    if (!persist.clockValid) {
+      deviceTimeReqPending = true;
+    }
     break;
   case EV_JOIN_FAILED:
     logPrintln(F("EV_JOIN_FAILED"));
@@ -270,6 +354,12 @@ void transmitBatchAndWait() {
   if (runMode == 1) {
     digitalWrite(LED_PIN, HIGH);
   }
+  // Piggyback a network-time request on this uplink if one is pending. It only
+  // arrives in an RX window after an uplink, and may not land -- onNetworkTime
+  // leaves clockValid=0 in that case and we simply ask again next time.
+  if (deviceTimeReqPending) {
+    LMIC_requestNetworkTime(onNetworkTime, nullptr);
+  }
   txComplete = false;
   LMIC_setTxData2(currentFPort, payload, len, 0);
 
@@ -299,6 +389,15 @@ void transmitBatchAndWait() {
     // so the retry carries the same counter value and the backend can tell a
     // retry from a fresh uplink.
     uplinkScheduleOnTxSuccess(&uplinkSched);
+
+    // Snapshot everything that must survive a reset (S03-05).
+    persist.seasonState = primaryPolicy.seasonState_;
+    persist.voltageState = primaryPolicy.voltageState_;
+    persist.currentIntervalIndex = currentIntervalIndex;
+    persist.uplinkCounter = uplinkSched.uplinkCounter;
+    persist.surfaceTempC = surfaceTempC;
+    if (persist.clockValid) persist.rtcEpoch = rtc.getEpoch();
+    persistSeal(&persist);
   }
 }
 
@@ -312,13 +411,39 @@ void setup() {
   pinMode(STRAP_PIN, INPUT_PULLUP);
   delay(100); // Longer delay to ensure pull-up is stable
 
+  // Probe for the INA219 and select the power variant BEFORE touching the policy.
+  Wire.begin();
+  powerVariant = probeVariant();
+  // SolarPolicy lands in sprint 04; until then the probe result only logs and
+  // selects primary. When it exists:
+  //   policy = (powerVariant == VARIANT_SOLAR) ? &solarPolicy : &primaryPolicy;
+  policy = &primaryPolicy;
+
+  // Restore state across a soft reset, or cold-boot if it is not ours / not
+  // this layout / corrupt (persist.h). bootCounter increments either way.
+  bool coldBoot = !persistValid(&persist);
+  if (coldBoot) {
+    persistInit(&persist);
+  }
+  persist.bootCounter = (uint8_t)((persist.bootCounter + 1) & 0x07); // 3-bit
+  persistSeal(&persist);
+
   currentIntervalIndex = 2; // 5 min initial; then from the policy after each successful TX
   policy->begin();          // starts at Summer; hysteresis settles it from real readings
-  surfaceTempC = 15.0f;     // safe default until the first reading
+  // Restore the season-driving inputs the policy just reset, if we have them.
+  if (!coldBoot) {
+    primaryPolicy.seasonState_ = persist.seasonState;
+    primaryPolicy.voltageState_ = persist.voltageState;
+    currentIntervalIndex = persist.currentIntervalIndex ? persist.currentIntervalIndex : 2;
+    surfaceTempC = persist.surfaceTempC;
+  } else {
+    surfaceTempC = 15.0f;   // safe default until the first reading
+  }
   uint8_t intervalIdx = (currentIntervalIndex > 10) ? 10 : currentIntervalIndex;
   sleepIntervalSeconds = kIntervalSecondsByIndex[intervalIdx];
   batchTarget = 6;
   uplinkScheduleInit(&uplinkSched, batchTarget);
+  uplinkSched.uplinkCounter = persist.uplinkCounter; // preserve across soft reset
 
   // Read the strap: only runMode differs (USB/Serial, join timeout, sleep path still vary by mode)
   // LOW = Connected to GND (Development)
@@ -379,6 +504,20 @@ void setup() {
     logPrintln(sensors.getDeviceCount());
     logPrintln(F("Temperatures will report as null until the bus has exactly one device."));
   }
+  // Force ArduinoLowPower to configure the RTC exactly once, via its own API,
+  // so getEpoch() is valid before the first sleep (the first uplink after join
+  // happens before any deepSleep). We never call rtc.begin() ourselves -- see
+  // the RTCZero global comment and S03-10.
+  LowPower.attachInterruptWakeup(RTC_ALARM_WAKEUP, nullptr, (irq_mode)0);
+  // The RTC does not survive NVIC_SystemReset() (no backup domain on SAMD21), so
+  // a valid clock is restored from .noinit, where it was stashed before the
+  // join-failure reset (S03-06).
+  if (!coldBoot && persist.clockValid && utcPlausible(persist.rtcEpoch)) {
+    rtc.setEpoch(persist.rtcEpoch);
+  } else {
+    persist.clockValid = 0;   // cold boot loses the clock
+  }
+
   os_init();
   LMIC_reset();
   LMIC_setClockError((uint32_t)MAX_CLOCK_ERROR * 5 / 100);
@@ -398,6 +537,13 @@ void loop() {
     if (runMode == 0 && (millis() - joinAttemptStart > 180000UL)) {
       joinAttemptStart = 0; // Reset for next time
       LowPower.deepSleep(900000);
+      // The RTC counted those 15 minutes; stash the CURRENT epoch (already
+      // includes them) so the clock survives the reset. Do NOT add the sleep
+      // back on restore -- it is already in the value we read here (S03-06).
+      if (persist.clockValid) {
+        persist.rtcEpoch = rtc.getEpoch();
+        persistSeal(&persist);
+      }
       NVIC_SystemReset(); // Start fresh
     }
     return;
