@@ -3,6 +3,6 @@
   "private": true,
   "description": "Decoder and firmware-logic tests. No dependencies on purpose.",
   "scripts": {
-    "test": "node test/run.js"
+    "test": "node test/run.js && node test/run_v7.js"
   }
 }
