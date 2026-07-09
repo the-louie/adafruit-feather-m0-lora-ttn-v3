@@ -29,6 +29,8 @@
 #include "persist.h"
 #include "variant_probe.h"
 #include "timekeeping.h"
+#include "policy_solar.h"
+#include <Adafruit_INA219.h>
 
 #define VBATPIN A7
 
@@ -102,9 +104,16 @@ static uint8_t currentIntervalIndex; // 0-10; from setup() and after successful 
 static uint8_t currentFPort;
 // The active power policy. Chosen at boot by probing for the INA219.
 static PrimaryCellPolicy primaryPolicy;
-// SolarPolicy is added in sprint 04; the probe already selects for it (see setup).
+static SolarPolicy solarPolicy;
 static PowerPolicy *policy = &primaryPolicy;
 static PowerVariant powerVariant = VARIANT_PRIMARY;
+static Adafruit_INA219 ina219;   // only used on the solar variant
+
+// millis() of the last sensor wake, so the solar EWMA/harvest get a real dt.
+// The RTC would drift-correct better, but wake-to-wake dt only needs elapsed
+// seconds, and millis() is fine awake; deep sleep advances the RTC not millis(),
+// so we take dt from the interval we just slept instead (see readAndBufferSensors).
+static uint32_t lastWakeMillis = 0;
 
 // State that survives NVIC_SystemReset(). NOT initialised by the C runtime --
 // that is the whole point. Validity is checked in setup() (persist.h).
@@ -279,6 +288,18 @@ void readAndBufferSensors() {
   // INA219 averaging). Because the wait below is measured from convStart, this
   // SHRINKS the remaining delay rather than extending the wake.
   policy->onWake();
+  if (powerVariant == VARIANT_SOLAR) {
+    // Bus voltage is measured load-side, so a full pack in bright sun (charger
+    // terminated) reads panel Voc rather than ~0 -- which is why the signal keys
+    // on voltage, not current. dt is the interval we just slept: millis() does
+    // not advance through deep sleep, and it is the elapsed time that the EWMA
+    // needs, not a wall-clock instant.
+    uint16_t busMv = (uint16_t)(ina219.getBusVoltage_V() * 1000.0f);
+    float currentMa = ina219.getCurrent_mA();
+    if (currentMa < 0) currentMa = 0;   // reverse leakage blocked by the Schottky
+    solarPolicy.ingestSample(busMv, currentMa, sleepIntervalSeconds);
+    ina219.powerSave(true);   // ~15 uA between reads (S04-03)
+  }
 
   if (runMode == 0) {
     // PROD: plain delay for the remainder of the conversion window.
@@ -354,6 +375,15 @@ void transmitBatchAndWait() {
   if (runMode == 1) {
     digitalWrite(LED_PIN, HIGH);
   }
+  // Populate the solar status byte inputs before the payload is built.
+  if (powerVariant == VARIANT_SOLAR) {
+    solarPolicy.bootCounter_ = persist.bootCounter;
+    uint8_t flags = 0;
+    if (persist.clockValid) flags |= STATUS_CLOCK_VALID;
+    if (persist.bootCounter <= 1) flags |= STATUS_COLD_BOOT;   // first boots
+    solarPolicy.statusFlags_ = flags;
+  }
+
   // Piggyback a network-time request on this uplink if one is pending. It only
   // arrives in an RX window after an uplink, and may not land -- onNetworkTime
   // leaves clockValid=0 in that case and we simply ask again next time.
@@ -390,13 +420,24 @@ void transmitBatchAndWait() {
     // retry from a fresh uplink.
     uplinkScheduleOnTxSuccess(&uplinkSched);
 
-    // Snapshot everything that must survive a reset (S03-05).
-    persist.seasonState = primaryPolicy.seasonState_;
-    persist.voltageState = primaryPolicy.voltageState_;
+    // Snapshot everything that must survive a reset (S03-05). Read from the
+    // ACTIVE policy -- a solar unit's season/voltage live on solarPolicy, and
+    // reading primaryPolicy here would persist stale values.
+    if (powerVariant == VARIANT_SOLAR) {
+      persist.seasonState = solarPolicy.seasonState_;
+      persist.voltageState = solarPolicy.voltageState_;
+    } else {
+      persist.seasonState = primaryPolicy.seasonState_;
+      persist.voltageState = primaryPolicy.voltageState_;
+    }
     persist.currentIntervalIndex = currentIntervalIndex;
     persist.uplinkCounter = uplinkSched.uplinkCounter;
     persist.surfaceTempC = surfaceTempC;
     if (persist.clockValid) persist.rtcEpoch = rtc.getEpoch();
+    if (powerVariant == VARIANT_SOLAR) {
+      persist.sunEwma = solarPolicy.ewma_;
+      persist.harvestMilliAmpHours = solarPolicy.harvest_.totalMah;
+    }
     persistSeal(&persist);
   }
 }
@@ -414,10 +455,15 @@ void setup() {
   // Probe for the INA219 and select the power variant BEFORE touching the policy.
   Wire.begin();
   powerVariant = probeVariant();
-  // SolarPolicy lands in sprint 04; until then the probe result only logs and
-  // selects primary. When it exists:
-  //   policy = (powerVariant == VARIANT_SOLAR) ? &solarPolicy : &primaryPolicy;
-  policy = &primaryPolicy;
+  policy = (powerVariant == VARIANT_SOLAR)
+             ? (PowerPolicy *)&solarPolicy
+             : (PowerPolicy *)&primaryPolicy;
+  if (powerVariant == VARIANT_SOLAR) {
+    // 16 V / 400 mA calibration -> 0.1 mA/LSB. The breakout's 32 V/2 A default
+    // gives 0.8 mA/LSB, ~4% resolution against a 30 mA panel (S04-01).
+    ina219.begin();
+    ina219.setCalibration_16V_400mA();
+  }
 
   // Restore state across a soft reset, or cold-boot if it is not ours / not
   // this layout / corrupt (persist.h). bootCounter increments either way.
@@ -434,6 +480,13 @@ void setup() {
   if (!coldBoot) {
     primaryPolicy.seasonState_ = persist.seasonState;
     primaryPolicy.voltageState_ = persist.voltageState;
+    solarPolicy.seasonState_ = persist.seasonState;
+    solarPolicy.voltageState_ = persist.voltageState;
+    solarPolicy.ewma_ = persist.sunEwma;
+    solarPolicy.harvest_.totalMah = persist.harvestMilliAmpHours;
+    // Re-derive the latched bonus from the restored EWMA (conservative: off until
+    // it re-engages), so a reset cannot leave the bonus stuck on.
+    solarPolicy.bonusActive_ = false;
     currentIntervalIndex = persist.currentIntervalIndex ? persist.currentIntervalIndex : 2;
     surfaceTempC = persist.surfaceTempC;
   } else {
