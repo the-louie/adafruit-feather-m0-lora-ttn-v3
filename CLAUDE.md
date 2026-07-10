@@ -2,7 +2,22 @@
 
 Battery-powered LoRaWAN water-tank temperature sensor. An Adafruit Feather M0 LoRa (SAMD21 + RFM95) reads a DS18B20 via OneWire, batches six readings in RAM, uplinks a 9-byte payload to The Things Network over OTAA, and deep-sleeps between wakes. Region is **EU868** and the firmware refuses to compile without it (`#error` on `CFG_eu868`).
 
-The whole firmware is one sketch: `adafruit-feather-m0-lora-ttn-2.ino`.
+The firmware is `adafruit-feather-m0-lora-ttn-2.ino` plus a set of Arduino-free headers, each host-tested (`test/host/`, run with `test/host/run_tests.sh`):
+
+| header | what |
+|---|---|
+| `season.h` | seasonal baseline + 1 °C hysteresis, shared by both variants |
+| `power_policy.h` | the `PowerPolicy` interface + `voltageOffsetHyst()` |
+| `policy_primary.h` | 6 V pack: bands, interval ladder |
+| `policy_solar.h` | li-ion + panel: bands, two-gate bonus, 15-byte payload |
+| `solar_signal.h` | sun EWMA, bonus gate, harvest accumulator |
+| `payload.h` | payload bytes 0–8, encoders, sentinels |
+| `uplink_schedule.h` | send decision + uplink counter |
+| `persist.h` | `.noinit` state, magic+version+CRC |
+| `variant_probe.h` | INA219 probe decision logic |
+| `timekeeping.h` | GPS→UTC conversion |
+
+The `.ino` holds the Arduino glue (I2C, RTC, LMIC, sensor reads); the headers hold the judgement. **Everything with judgement is host-tested; the glue is compile-verified.**
 
 **Decoders live in `decoders/`, exported verbatim from TTN.** There is no application-level formatter — each device carries its own, and they differ. `ttn-decoder-v6.js` used to sit in this root and was **not** what production ran; it was deleted 2026-07-17 after causing a false diagnosis. Git has it if anyone ever needs it.
 
@@ -28,6 +43,29 @@ These are deliberate and load-bearing. Don't undo them without asking:
 - **`LMIC_setClockError((uint32_t)MAX_CLOCK_ERROR * 5 / 100)`** — the cast matters; without it the expression overflows 16 bits. The M0's RC oscillator drifts and needs the 5% relaxation.
 - **`LMIC_setLinkCheckMode(0)` inside `EV_JOINED`.** Otherwise the gateway burns its duty cycle on MAC ACKs.
 - **`currentIntervalIndex` has exactly two write points:** `setup()` and the post-`EV_TXCOMPLETE` block. Interval changes only after a successful uplink.
+
+## Two power variants, chosen at boot
+
+A runtime I2C probe for the INA219 selects the variant — one binary for every board.
+
+| | primary | solar |
+|---|---|---|
+| pack | 6 V (4×AA or 2× 3 V lithium) | 1S2P 18650 li-ion + panel |
+| bands | 5.0 / 4.3 / 3.5 V | 3.85 / 3.65 / 3.45 V |
+| payload | 9 bytes | 15 bytes (6 appended) |
+| FPorts | 10 (PROD) / 20 (DEV) | 11 / 21 |
+
+Both share the season machine and the voltage-band hysteresis. The solar variant adds a sun-presence EWMA (keyed on panel **bus voltage**, not current — current collapses to 0 when the pack is full), a fixed 2-step interval bonus gated on `voltage_offset == 0` AND the sun EWMA, and a harvest accumulator. See `docs/solar-variant-design.md`.
+
+## The fleet
+
+| device | protocol | status |
+|---|---|---|
+| gisebo-01 | 9-byte v6, 30 min | **PRODUCTION, frozen; retired at cutover** |
+| gisebo-04 | 8-byte v5, 5 min fixed | test unit in a fridge (cold lithium test) — **do not disturb** |
+| gisebo-05 | v7 solar | the target of all v3 work; not yet created |
+
+gisebo-05 **replaces** gisebo-01 (sprint 08 cutover); the two are never in production together. Decoders are per-device (`decoders/`), one per unit.
 
 ## DEV vs PROD
 
