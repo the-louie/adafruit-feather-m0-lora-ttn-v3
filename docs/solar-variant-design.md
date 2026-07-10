@@ -1,6 +1,6 @@
 # Solar variant — design
 
-Status: **agreed, not implemented.** Captures the decisions from the design interview. Open hardware questions are listed at the end and are not settled.
+Status: **implemented (sprints 02-04), host-tested, not yet on hardware.** As-built: see the module headers listed in CLAUDE.md and the dev-notes dated 2026-07-17. On-device verification is sprint 07. Captures the decisions from the design interview. Open hardware questions are listed at the end and are not settled.
 
 A second deploy target: a post-mounted, true-south, vertically-mounted 5 V 0.15 W panel charging a 1S2P 18650 pack through an INA219, with a supercapacitor across the pack to cover the radio's 120 mA TX spike in the cold. The existing non-rechargeable build stays supported. The firmware splits three ways: a variant-agnostic core, the current temperature/battery policy, and a new solar policy.
 

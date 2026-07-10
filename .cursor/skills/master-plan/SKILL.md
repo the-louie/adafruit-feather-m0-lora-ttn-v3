@@ -87,3 +87,10 @@ The CRC is not optional: magic and version catch layout changes and clean cold b
 
 ### Robust SPI Boot Sequencing
 The RFM95 needs time to stabilize its voltage before receiving SPI commands. Call delay(5000) and SPI.begin() at the absolute top of setup() before touching the LMIC libraries.
+
+
+### Two power variants behind PowerPolicy (v7)
+
+The firmware now selects a power variant at boot by probing for an INA219 (present -> solar li-ion, absent -> primary 6 V pack). Both sit behind a virtual PowerPolicy and SHARE the season machine (season.h) and the voltage-band hysteresis (power_policy.h). One binary for every board; the probe, not a build flag, decides.
+
+Solar specifics: keys on panel BUS VOLTAGE not current (current collapses to 0 on a full pack in sun); a fixed 2-step interval bonus gated on BOTH a healthy pack AND a latched sun EWMA, so the two signals cannot fight and the loop self-corrects; a time-based EWMA (decays against real elapsed seconds, not wake count, or it hunts); harvest accumulator. Day length / clarity is DECODER-ONLY -- firmware never computes it, so it stays one-binary.
