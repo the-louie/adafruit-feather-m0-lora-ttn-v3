@@ -60,6 +60,23 @@ static float getBatteryVoltage(void) {
 #define LED_PIN 13
 #define ONE_WIRE_BUS A2
 
+// ---------------------------------------------------------------------------
+// Bench option: run the SOLAR policy WITHOUT an INA219 (S07 stopgap)
+// ---------------------------------------------------------------------------
+// The solar interval logic keys on panel BUS VOLTAGE, not current -- current
+// only feeds the harvest accumulator (telemetry). So a plain resistor divider on
+// a spare ADC pin gives the whole control path; you lose only the harvest field.
+//
+// Wire:  panel(+) --[R1]--+--[R2]-- GND,  tap the middle node to PANEL_ADC_PIN.
+// With R1=200k, R2=100k that is a /3 divider: a 6.0 V panel -> 2.0 V at the pin,
+// safely below the 3.3 V ADC reference. Panel(-) and the Feather share GND.
+//
+// Uncomment SOLAR_NO_INA219 to enable. Default OFF, so the normal INA219 build
+// is unchanged. When enabled the probe is bypassed and the device is solar.
+//#define SOLAR_NO_INA219
+#define PANEL_ADC_PIN   A1
+#define PANEL_DIV_RATIO 3.0f   // (R1 + R2) / R2
+
 // Safely size the buffer to the protocol maximum to prevent future memmove
 // overflows
 #define MAX_BATCH 6
@@ -294,11 +311,18 @@ void readAndBufferSensors() {
     // on voltage, not current. dt is the interval we just slept: millis() does
     // not advance through deep sleep, and it is the elapsed time that the EWMA
     // needs, not a wall-clock instant.
+#ifdef SOLAR_NO_INA219
+    // Bus voltage from the divider; no shunt, so current (harvest) is 0.
+    uint16_t adc = analogRead(PANEL_ADC_PIN);
+    uint16_t busMv = (uint16_t)(adc * (3.3f / 1024.0f) * PANEL_DIV_RATIO * 1000.0f);
+    solarPolicy.ingestSample(busMv, 0.0f, sleepIntervalSeconds);
+#else
     uint16_t busMv = (uint16_t)(ina219.getBusVoltage_V() * 1000.0f);
     float currentMa = ina219.getCurrent_mA();
     if (currentMa < 0) currentMa = 0;   // reverse leakage blocked by the Schottky
     solarPolicy.ingestSample(busMv, currentMa, sleepIntervalSeconds);
     ina219.powerSave(true);   // ~15 uA between reads (S04-03)
+#endif
   }
 
   if (runMode == 0) {
@@ -455,14 +479,21 @@ void setup() {
   // Probe for the INA219 and select the power variant BEFORE touching the policy.
   Wire.begin();
   powerVariant = probeVariant();
+#ifdef SOLAR_NO_INA219
+  // Bench mode: no INA219 to probe, so force solar and read the panel via ADC.
+  powerVariant = VARIANT_SOLAR;
+  analogReadResolution(10);   // match the 1024-step math below
+#endif
   policy = (powerVariant == VARIANT_SOLAR)
              ? (PowerPolicy *)&solarPolicy
              : (PowerPolicy *)&primaryPolicy;
   if (powerVariant == VARIANT_SOLAR) {
+#ifndef SOLAR_NO_INA219
     // 16 V / 400 mA calibration -> 0.1 mA/LSB. The breakout's 32 V/2 A default
     // gives 0.8 mA/LSB, ~4% resolution against a 30 mA panel (S04-01).
     ina219.begin();
     ina219.setCalibration_16V_400mA();
+#endif
   }
 
   // Restore state across a soft reset, or cold-boot if it is not ours / not
