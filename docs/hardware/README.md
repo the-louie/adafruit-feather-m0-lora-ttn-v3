@@ -115,6 +115,14 @@ board**, whatever charger is used. (Note also: common CN3791 modules are 12 V
 input variants whose MPPT setpoint a 5 V panel can never reach — see the no-MPPT
 decision in `docs/dev-notes/20260717-1220_no-mppt-decision.md`.)
 
+**The protection board must be 1S, not 2S.** The pack is 1S2P — two cells in
+**parallel**, one 3.7 V group — and the Feather's battery input takes a **single
+cell only (3.0–4.2 V)**. A **1S** protection board has 4 pads (B+ B− P+ P−). A
+**2S** board (e.g. marked "2S", with a **BM** / battery-middle midpoint pad, 5
+pads) is for two cells in **series** at 7.4 V — wrong configuration, and wiring
+2S would feed ~8 V into the JST and destroy the board. Buy a board that says
+**1S** and has no midpoint pad.
+
 **Bench vs field:** unprotected cells are fine on the bench *while attended* —
 just keep them above ~3 V. For field deployment the protection board is
 mandatory; the onboard MCP73831 handles over-charge, the board handles the
