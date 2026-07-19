@@ -103,8 +103,22 @@ Use **one pack-level PCM across the 2P bank**, not two "protected cells" in
 parallel — two protection circuits in parallel fight on recovery (one trips, the
 other inherits the load and trips too). A single PCM sees the true pack voltage,
 trips once, recovers once. Shopping terms: a "protected 18650" is a cell with a
-PCM already on it; a "BMS" is the same idea for multi-cell *series* packs (more
-than we need at 1S).
+PCM already on it; a cheap 1S protection board ("DW01 + 8205A") is the same thing
+loose; a "BMS" is the same idea for multi-cell *series* packs (more than we need
+at 1S).
+
+**A charger is NOT a PCM.** A solar charger — CN3791, CN3065, or the Feather's
+onboard MCP73831 — controls current *into* the cell and prevents over-*charge*.
+It does nothing about over-*discharge*: with no sun it is idle while the load
+drains the cell. So **non-protected cells always need a separate protection
+board**, whatever charger is used. (Note also: common CN3791 modules are 12 V
+input variants whose MPPT setpoint a 5 V panel can never reach — see the no-MPPT
+decision in `docs/dev-notes/20260717-1220_no-mppt-decision.md`.)
+
+**Bench vs field:** unprotected cells are fine on the bench *while attended* —
+just keep them above ~3 V. For field deployment the protection board is
+mandatory; the onboard MCP73831 handles over-charge, the board handles the
+over-discharge cutoff.
 
 ## Which parts you need for which test
 
