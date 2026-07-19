@@ -123,6 +123,13 @@ pads) is for two cells in **series** at 7.4 V — wrong configuration, and wirin
 2S would feed ~8 V into the JST and destroy the board. Buy a board that says
 **1S** and has no midpoint pad.
 
+**What to buy:** a standard **1S DW01 + 8205A** protection board — over-discharge
+cutoff ~2.45 V (below the 3.4 V brownout, protects the cell), over-charge ~4.25 V,
+4 pads (B+ B− P+ P−). Any current rating ≥ ~3 A is far more than the load needs
+(µA asleep, ~120 mA on TX). For the **1S2P** pack, tie both cells' + to B+ and
+both − to B−; the load (Feather + supercap) hangs off P+ / P−. Sold in cheap
+multi-packs; grab spares.
+
 **Bench vs field:** unprotected cells are fine on the bench *while attended* —
 just keep them above ~3 V. For field deployment the protection board is
 mandatory; the onboard MCP73831 handles over-charge, the board handles the
