@@ -120,6 +120,12 @@ just keep them above ~3 V. For field deployment the protection board is
 mandatory; the onboard MCP73831 handles over-charge, the board handles the
 over-discharge cutoff.
 
+**Bench charging.** A standalone 1S charger module (e.g. a TP4056 board, often
+silkscreened "FC-75", with IN+/IN−/BAT+/BAT−) is handy for topping up bare cells
+off USB between tests — never unattended. It is a *charger*, not part of the
+deployed design (we charge through the onboard MCP73831) and not a protection
+board unless it also has OUT+/OUT− pads (a DW01+8205A protected variant).
+
 ## Which parts you need for which test
 
 | goal | panel | INA219 | Schottky | supercap | PCM |
