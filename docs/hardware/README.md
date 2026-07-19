@@ -46,9 +46,10 @@ sense, so it measures the solar harvest and the bus voltage the policy keys on.
    └───────┬───────┘    └───────────┬─────────────────┘
            │                        │
         ┌──┴───┐                    │
-        │ PCM  │  pack protection   ├──(+)──► Feather JST +   (BAT)
-        │ 2.4– │  (over-discharge)  │
-        │ 2.8V ├────────(−)─────────┴──(−)──► Feather JST −   (GND)
+        │ PCM  │  Protection Circuit├──(+)──► Feather JST +   (BAT)
+        │ 2.4– │  Module: cuts the  │
+        │ 2.8V │  pack off at ~2.5 V├───────  (over-discharge protection)
+        │ cut  ├────────(−)─────────┴──(−)──► Feather JST −   (GND)
         └──────┘
 
 
@@ -87,6 +88,23 @@ sense, so it measures the solar harvest and the bus voltage the policy keys on.
 | DS18B20 VDD / GND | Feather `3V` / `GND` | |
 | RFM95 `DIO1` | Feather pin `6` | jumper; LMIC needs it |
 | Strap | pin `11` (float=PROD, GND=DEV) | |
+
+## The PCM (Protection Circuit Module)
+
+A **PCM** is the small board between the li-ion cells and the load that protects
+the pack. For our 1S pack its job is **over-discharge protection**: the Feather
+browns out at ~3.4 V but keeps leaking tens of µA afterward, which over a long
+dark winter spell would walk a cell down past ~2.5 V and destroy it. Firmware
+cannot help — it is already off. The PCM disconnects the pack at ~2.4–2.8 V:
+below the brownout, so firmware always acts first, but above the cell's damage
+threshold, so the cell survives to recharge when the sun returns.
+
+Use **one pack-level PCM across the 2P bank**, not two "protected cells" in
+parallel — two protection circuits in parallel fight on recovery (one trips, the
+other inherits the load and trips too). A single PCM sees the true pack voltage,
+trips once, recovers once. Shopping terms: a "protected 18650" is a cell with a
+PCM already on it; a "BMS" is the same idea for multi-cell *series* packs (more
+than we need at 1S).
 
 ## Which parts you need for which test
 
