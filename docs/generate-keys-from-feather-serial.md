@@ -50,8 +50,9 @@ binary and repo stay private**.
   unversioned required file, exactly like `lmic_project_config.h`. The build
   will not compile without it.
 - Copy `keygen_salt.h.example` → `keygen_salt.h` and fill in 32 random bytes
-  (`openssl rand -hex 32`). **Back the salt up offline** — losing it means every
-  board must be re-registered; leaking it compromises every AppKey.
+  (`openssl rand -hex 32`). **Back the salt up in a password manager (e.g.
+  Bitwarden)** as the authoritative offline copy — losing it means every board
+  must be re-registered; leaking it compromises every AppKey.
 - Host tests use a separate throwaway test salt, so the real salt never appears
   in the repo or the test vectors.
 

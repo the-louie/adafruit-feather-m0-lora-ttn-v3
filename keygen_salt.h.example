@@ -10,6 +10,10 @@
 // crown jewel: anyone with it plus a board's (public) serial can reconstruct
 // that board's AppKey. Keep it private and back it up offline; changing it
 // changes every board's derived keys and forces re-registration in TTN.
+//
+// RECOMMENDED: store the real keygen_salt.h in a password manager (e.g.
+// Bitwarden) as the authoritative backup -- it is the single secret that,
+// if lost, forces re-registering every board.
 #include <stdint.h>
 #include <stddef.h>
 static const uint8_t KEYGEN_SALT[] = {
