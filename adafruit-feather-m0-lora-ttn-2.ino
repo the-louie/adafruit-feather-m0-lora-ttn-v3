@@ -30,6 +30,8 @@
 #include "variant_probe.h"
 #include "timekeeping.h"
 #include "policy_solar.h"
+#include "keygen.h"
+#include "keygen_salt.h"
 #include <Adafruit_INA219.h>
 
 #define VBATPIN A7
@@ -86,26 +88,45 @@ DallasTemperature sensors(&oneWire);
 
 
 // -----------------------------------------------------------------------------
-// TTN OTAA CREDENTIALS (From your known-good config)
+// TTN OTAA CREDENTIALS -- derived on boot from the SAMD21 silicon serial.
 // -----------------------------------------------------------------------------
-// AppEUI: Little-endian (LSB first)
+// One universal binary: each board reconstructs its own DevEUI + AppKey from its
+// permanent 128-bit serial mixed with the shared secret salt (keygen.h +
+// keygen_salt.h), so there are no per-board key edits and no way to flash the
+// wrong keys. In DEV the derived keys print once at boot for TTN registration.
+//
+// The JoinEUI (AppEUI) is NOT derived -- it is a fixed fleet-wide constant.
+//   JoinEUI = 0x0000000000000001  (LMIC wants it little-endian, LSB first)
 static const u1_t PROGMEM APPEUI[8] = {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 void os_getArtEui(u1_t *buf) { memcpy_P(buf, APPEUI, 8); }
 
-static const u1_t PROGMEM DEVEUI[8] = {0x82, 0x88, 0x07, 0xD0, 0x7E, 0xD5, 0xB3, 0x70}; // 5 (gisebo-05, solar v7) = 70B3D57ED0078882
-//static const u1_t PROGMEM DEVEUI[8] = {0xDD, 0x57, 0x07, 0xD0, 0x7E, 0xD5, 0xB3, 0x70}; // 1 (PRODUCTION, frozen — DO NOT flash from v7)
-//static const u1_t PROGMEM DEVEUI[8] = {0x01, 0x5E, 0x07, 0xD0, 0x7E, 0xD5, 0xB3, 0x70}; // 4
-void os_getDevEui(u1_t *buf) { memcpy_P(buf, DEVEUI, 8); }
+// Populated once in setup() by deriveBoardCredentials(), before LMIC joins.
+static DerivedCreds g_creds;
 
-// AppKey: Big-endian (MSB first)
-static const u1_t PROGMEM APPKEY[16] = {0xC4, 0x63, 0xCB, 0xFE, 0xD2, 0x86, 0xED, 0x81, 0x84, 0xA4, 0x5A, 0x3C, 0x3D, 0xB3, 0x69, 0x38}; // 5 (gisebo-05, solar v7)
-//static const u1_t PROGMEM APPKEY[16] = {0x79, 0x87, 0x8E, 0x16, 0x19, 0xDA, 0xF4, 0x3C, 0xB6, 0x76, 0x71, 0xFC, 0x54, 0x68, 0xBE, 0xDB}; // 1 (PRODUCTION, frozen — DO NOT flash from v7)
-//static const u1_t PROGMEM APPKEY[16] = {0x10, 0x14, 0x8B, 0x3A, 0x38, 0x5D, 0x46, 0xDA, 0xB3, 0x1E, 0xB6, 0x08, 0x1B, 0xD9, 0x26, 0x46}; // 4
+// Read the SAMD21's 128-bit factory serial (four words at these fixed addresses,
+// most-significant word first) into 16 bytes.
+static void readChipSerial(uint8_t out[16]) {
+  const uint32_t addr[4] = {0x0080A00C, 0x0080A040, 0x0080A044, 0x0080A048};
+  for (int w = 0; w < 4; ++w) {
+    uint32_t word = *(const volatile uint32_t *)addr[w];
+    out[w * 4 + 0] = (uint8_t)(word >> 24);
+    out[w * 4 + 1] = (uint8_t)(word >> 16);
+    out[w * 4 + 2] = (uint8_t)(word >> 8);
+    out[w * 4 + 3] = (uint8_t)(word);
+  }
+}
 
+// Derive this board's credentials into g_creds. Call once, before LMIC joins.
+static void deriveBoardCredentials() {
+  uint8_t serial[16];
+  readChipSerial(serial);
+  deriveCredentials(serial, KEYGEN_SALT, KEYGEN_SALT_LEN, g_creds);
+}
 
-
-
-void os_getDevKey(u1_t *buf) { memcpy_P(buf, APPKEY, 16); }
+// LMIC wants the DevEUI little-endian; g_creds.devEui is MSB-first.
+void os_getDevEui(u1_t *buf) { euiToLmicLE(g_creds.devEui, buf); }
+// AppKey is MSB-first for LMIC -- same as the canonical derived form.
+void os_getDevKey(u1_t *buf) { memcpy(buf, g_creds.appKey, 16); }
 
 // Interval index table: 0 = unused (5 min default if ever read), 1-10 = 1,5,15,30,60,120,360,720,1440,10080 minutes (in seconds)
 static const uint32_t kIntervalSecondsByIndex[11] = {
@@ -557,6 +578,20 @@ void setup() {
     Serial.begin(9600);
     uint32_t start = millis();
     while (!Serial && millis() - start < 3000);
+  }
+
+  // Derive this board's OTAA identity from its silicon serial, before LMIC uses
+  // os_getDevEui()/os_getDevKey() during the join. In DEV, print the keys once
+  // so the operator can register the device in TTN.
+  deriveBoardCredentials();
+  if (runMode == 1) {
+    Serial.print(F("DevEUI (MSB, register in TTN): "));
+    for (int i = 0; i < 8; i++) { if (g_creds.devEui[i] < 0x10) Serial.print('0'); Serial.print(g_creds.devEui[i], HEX); }
+    Serial.println();
+    Serial.print(F("AppKey (MSB): "));
+    for (int i = 0; i < 16; i++) { if (g_creds.appKey[i] < 0x10) Serial.print('0'); Serial.print(g_creds.appKey[i], HEX); }
+    Serial.println();
+    Serial.println(F("JoinEUI: 0000000000000001"));
   }
 
   // 5. Peripherals & LMIC

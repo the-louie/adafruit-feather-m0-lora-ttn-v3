@@ -6,3 +6,6 @@
 
 # Claude Code session state
 .claude/
+
+# Secret key-derivation salt (crown jewel) -- never commit
+keygen_salt.h

@@ -1,0 +1,22 @@
+#pragma once
+// TEMPLATE -- copy to keygen_salt.h and replace the bytes with your own secret.
+//
+//     cp keygen_salt.h.example keygen_salt.h
+//     # then paste 32 random bytes, e.g. from: openssl rand -hex 32
+//
+// keygen_salt.h is gitignored so the real salt never enters version control.
+// The build will NOT compile until keygen_salt.h exists -- this is deliberate,
+// mirroring the unversioned lmic_project_config.h region file. The salt is the
+// crown jewel: anyone with it plus a board's (public) serial can reconstruct
+// that board's AppKey. Keep it private and back it up offline; changing it
+// changes every board's derived keys and forces re-registration in TTN.
+#include <stdint.h>
+#include <stddef.h>
+static const uint8_t KEYGEN_SALT[] = {
+  // PLACEHOLDER -- do not ship. Replace all 32 bytes.
+  0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF,
+  0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF,
+  0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF,
+  0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD, 0xBE, 0xEF
+};
+static const size_t KEYGEN_SALT_LEN = sizeof(KEYGEN_SALT);
