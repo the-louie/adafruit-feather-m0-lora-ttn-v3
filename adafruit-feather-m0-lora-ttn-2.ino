@@ -417,18 +417,23 @@ void transmitBatchAndWait() {
                                  uplinkScheduleCounterForPayload(&uplinkSched),
                                  dataBuffer,
                                  uplinkSched.ramCount);
-  len += policy->appendPayload(payload + len);
-
-  if (runMode == 1) {
-    digitalWrite(LED_PIN, HIGH);
-  }
-  // Populate the solar status byte inputs before the payload is built.
+  // Populate the solar status byte inputs BEFORE appendPayload() reads them.
+  // appendPayload() writes byte 14 from bootCounter_/statusFlags_, so if these
+  // are set afterwards the status byte is stale-by-one -- zero on the very first
+  // uplink (confirmed on gisebo-05's f_cnt 0: status 0x00, boot_counter 0,
+  // cold_boot clear, when it should have read boot_counter 1 + cold_boot).
+  // See docs/dev-notes/20260726-*_status-byte-stale-by-one.md.
   if (powerVariant == VARIANT_SOLAR) {
     solarPolicy.bootCounter_ = persist.bootCounter;
     uint8_t flags = 0;
     if (persist.clockValid) flags |= STATUS_CLOCK_VALID;
     if (persist.bootCounter <= 1) flags |= STATUS_COLD_BOOT;   // first boots
     solarPolicy.statusFlags_ = flags;
+  }
+  len += policy->appendPayload(payload + len);
+
+  if (runMode == 1) {
+    digitalWrite(LED_PIN, HIGH);
   }
 
   // Piggyback a network-time request on this uplink if one is pending. It only
