@@ -16,6 +16,7 @@ const REPO = path.join(__dirname, '..');
 const DECODERS = {
   'gisebo-01': path.join(REPO, 'decoders', 'live-gisebo-01-9byte.js'),
   'gisebo-04': path.join(REPO, 'decoders', 'live-gisebo-04-8byte.js'),
+  'gisebo-05': path.join(REPO, 'decoders', 'gisebo-05-v7.js'),
 };
 
 let passed = 0;
@@ -58,6 +59,66 @@ for (const v of fixtures.vectors) {
     return diff(out.data, v.expected);
   });
 }
+
+// ---------------------------------------------------------------------------
+// 1b. gisebo-05 v7 diagnostic frames (FPort 1 PROD / 2 DEV). Crafted vectors,
+//     since no diagnostic firmware has flown yet; bytes follow diagnostics.h and
+//     the field values are computed from the same spec the C encoder is tested
+//     against. Replace with a live vector once a real diag frame lands.
+// ---------------------------------------------------------------------------
+console.log('\ngisebo-05 v7 diagnostic frames:');
+
+const DIAG_VECTORS = [
+  {
+    name: 'healthy solar DEV boot frame (no faults)',
+    fPort: 2,
+    bytes: [1, 0x17, 0x01, 1, 1, 0x00, 0x00, 0x39, 0x9F, 0x10, 0x04],
+    expected: {
+      version: 7, frame: 'diagnostic', diag_schema: 1,
+      mode: 'SOLAR', run_mode: 'DEV',
+      cold_boot: true, clock_valid: false, ina219_seen: true,
+      reset_cause: 1, reset_causes: ['power_on'],
+      boot_counter: 1, ds18b20_count: 1,
+      fault_bits: 0, faults: [], healthy: true,
+      ina219_config: '0x399F', ina219_config_ok: true,
+      battery_v: 4.1,
+    },
+  },
+  {
+    name: 'primary PROD, DS18B20 missing + low battery, watchdog reset',
+    fPort: 1,
+    bytes: [1, 0x08, 0x20, 3, 0, 0x00, 0x41, 0x00, 0x00, 0x0C, 0xE4],
+    expected: {
+      version: 7, frame: 'diagnostic', diag_schema: 1,
+      mode: 'PRIMARY', run_mode: 'PROD',
+      cold_boot: false, clock_valid: true, ina219_seen: false,
+      reset_cause: 32, reset_causes: ['watchdog'],
+      boot_counter: 3, ds18b20_count: 0,
+      fault_bits: 65, faults: ['ds18b20_not_found', 'low_battery'], healthy: false,
+      ina219_config: '0x0000', ina219_config_ok: false,
+      battery_v: 3.3,
+    },
+  },
+];
+
+for (const v of DIAG_VECTORS) {
+  check(`diag: ${v.name}`, () => {
+    const decodeUplink = loadDecoder(DECODERS['gisebo-05']);
+    const out = decodeUplink({ bytes: v.bytes, fPort: v.fPort });
+    const problems = diff(out.data, v.expected);
+    if (out.errors && out.errors.length) problems.push(`unexpected errors: ${out.errors.join('; ')}`);
+    return problems;
+  });
+}
+
+check('diag: wrong length is rejected loudly', () => {
+  const decodeUplink = loadDecoder(DECODERS['gisebo-05']);
+  const out = decodeUplink({ bytes: [1, 0, 0, 0], fPort: 2 });
+  const problems = [];
+  if (!out.errors || out.errors.length === 0) problems.push('expected a length error');
+  if (Object.keys(out.data).length !== 0) problems.push('expected empty data on error');
+  return problems;
+});
 
 // ---------------------------------------------------------------------------
 // 2. Harness self-tests. A test harness that silently does nothing is worse

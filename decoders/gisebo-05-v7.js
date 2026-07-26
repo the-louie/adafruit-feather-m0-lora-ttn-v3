@@ -34,6 +34,82 @@ function expectedDaylightFraction(date, latDeg) {
   return H / Math.PI;        // fraction of 24 h that is daylight
 }
 
+// --- Diagnostic (error/health) frame, its own FPort, variant-independent. ---
+// Mirrors diagnostics.h. FPort 1 = PROD, 2 = DEV. 11 bytes.
+const DIAG_FPORT_PROD = 1;
+const DIAG_FPORT_DEV = 2;
+const DIAG_PAYLOAD_LEN = 11;
+
+// Fault bitmap (bytes 5-6). Order matches diagnostics.h DIAG_FAULT_*.
+const DIAG_FAULT_NAMES = [
+  [0x0001, "ds18b20_not_found"],
+  [0x0002, "ds18b20_bus_ambiguous"],
+  [0x0004, "ds18b20_read_fail"],
+  [0x0008, "ina219_read_fail"],
+  [0x0010, "persist_corrupt"],
+  [0x0020, "tx_timeout"],
+  [0x0040, "low_battery"],
+];
+
+// SAMD21 PM->RCAUSE bits (byte 2).
+const RESET_CAUSE_NAMES = [
+  [0x01, "power_on"],
+  [0x02, "brownout_12"],
+  [0x04, "brownout_33"],
+  [0x10, "external"],
+  [0x20, "watchdog"],
+  [0x40, "system"],
+];
+
+function namesForBits(value, table) {
+  const out = [];
+  for (const [bit, name] of table) if (value & bit) out.push(name);
+  return out;
+}
+
+function decodeDiagnostic(bytes, fPort) {
+  const data = {}, warnings = [], errors = [];
+  if (bytes.length !== DIAG_PAYLOAD_LEN) {
+    errors.push(`diagnostic FPort ${fPort} expects ${DIAG_PAYLOAD_LEN} bytes, got ${bytes.length}`);
+    return { data: {}, warnings, errors };
+  }
+  const schema = bytes[0];
+  if (schema !== 1) warnings.push(`unknown diagnostic schema ${schema}; decoding as v1`);
+
+  const info = bytes[1];
+  data.version = FIRMWARE_VERSION;
+  data.frame = "diagnostic";
+  data.diag_schema = schema;
+  data.mode = (info & 0x01) ? "SOLAR" : "PRIMARY";
+  data.run_mode = (fPort === DIAG_FPORT_DEV) ? "DEV" : "PROD";
+  // The FPort and the info DEV bit encode the same thing; disagreement means a
+  // misconfigured device or the wrong decoder.
+  if (!!(info & 0x02) !== (fPort === DIAG_FPORT_DEV)) {
+    warnings.push(`DEV bit (${!!(info & 0x02)}) disagrees with FPort ${fPort}`);
+  }
+  data.cold_boot = !!(info & 0x04);
+  data.clock_valid = !!(info & 0x08);
+  data.ina219_seen = !!(info & 0x10);
+
+  data.reset_cause = bytes[2];
+  data.reset_causes = namesForBits(bytes[2], RESET_CAUSE_NAMES);
+  data.boot_counter = bytes[3];
+  data.ds18b20_count = bytes[4];
+
+  const faultBits = (bytes[5] << 8) | bytes[6];
+  data.fault_bits = faultBits;
+  data.faults = namesForBits(faultBits, DIAG_FAULT_NAMES);
+  data.healthy = faultBits === 0;
+
+  const probeCfg = (bytes[7] << 8) | bytes[8];
+  data.ina219_config = "0x" + probeCfg.toString(16).toUpperCase().padStart(4, "0");
+  data.ina219_config_ok = probeCfg === 0x399F;   // INA219 config-register reset value
+
+  data.battery_v = Number((((bytes[9] << 8) | bytes[10]) / 1000).toFixed(3));
+
+  return { data, warnings, errors };
+}
+
 function decodeTempSlot(v) {
   if (v === 250) return { skip: true };
   if (v === 251) return { temperature_state: "too cold" };
@@ -56,6 +132,12 @@ function decodeUplink(input) {
   const bytes = input.bytes;
   const fPort = input.fPort;
   const len = bytes.length;
+
+  // Diagnostic frames ride their own FPort (1 PROD / 2 DEV) and are variant-
+  // independent, so dispatch before the data-payload FPort/length checks.
+  if (fPort === DIAG_FPORT_PROD || fPort === DIAG_FPORT_DEV) {
+    return decodeDiagnostic(bytes, fPort);
+  }
 
   const isSolar = (fPort === 11 || fPort === 21);
   const isPrimary = (fPort === 10 || fPort === 20);
