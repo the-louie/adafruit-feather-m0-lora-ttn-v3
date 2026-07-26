@@ -79,8 +79,8 @@ sense, so it measures the solar harvest and the bus voltage the policy keys on.
 | Panel (−) | common GND | |
 | INA219 `VCC` | Feather `3V` | |
 | INA219 `GND` | Feather `GND` | |
-| INA219 `SDA` | Feather `SDA` | I2C, addr 0x40 |
-| INA219 `SCL` | Feather `SCL` | |
+| INA219 `SDA` | Feather `SDA` (pin 20) | I2C, addr 0x40 |
+| INA219 `SCL` | Feather `SCL` (pin 21) | |
 | Battery pack (+) via PCM | Feather JST `+` | |
 | Battery pack (−) via PCM | Feather JST `−` (GND) | |
 | Supercap | across the pack (∥) | + to pack +, − to pack − |
@@ -88,6 +88,36 @@ sense, so it measures the solar harvest and the bus voltage the policy keys on.
 | DS18B20 VDD / GND | Feather `3V` / `GND` | |
 | RFM95 `DIO1` | Feather pin `6` | jumper; LMIC needs it |
 | Strap | pin `11` (float=PROD, GND=DEV) | |
+
+## DS18B20 pinout (TO-92)
+
+The bare sensor is a TO-92 package — one **flat** face, one **curved** back. Hold
+it with the **flat face toward you and the legs pointing down**; the pins are then
+`GND`, `DQ`, `VDD` from **left to right**.
+
+```
+     ___          flat face toward you, legs down
+    /   \
+   | DS  |        pin 1 (left)   GND   black wire
+   |18B20|        pin 2 (mid)    DQ    yellow wire  → A2 (+4.7 kΩ to 3V)
+   |flat |        pin 3 (right)  VDD   red wire
+    | | |
+    1 2 3
+   G D V
+   N Q D
+   D   D
+```
+
+| Pin | Name | Probe wire | To |
+|---|---|---|---|
+| 1 (left) | `GND` | black | `GND` |
+| 2 (middle) | `DQ` (data) | yellow | `A2` + 4.7 kΩ to `3V` |
+| 3 (right) | `VDD` | red | `3V` |
+
+Confirm the probe's wire colours before trusting them: most use red=VDD,
+yellow=DQ, black=GND, but some bring data out as **white/blue** and cheap batches
+occasionally swap red/black. Buzz each wire to its TO-92 leg if unsure — reversed
+VDD/GND overheats the part and reads nothing.
 
 ## The PCM (Protection Circuit Module)
 
