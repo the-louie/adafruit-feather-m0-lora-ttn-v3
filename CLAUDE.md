@@ -170,5 +170,5 @@ The `{1, 7, 13}` signature identifies un-reflashed units.
 
 ## Known gaps
 
-- **OTAA credentials are hardcoded** in the sketch, with a second board's DevEUI/AppKey commented out beside them — flashing the wrong keys is a live hazard. `docs/generate-keys-from-feather-serial.md` proposes deriving them from the SAMD21 silicon ID instead, so one binary serves every board. Not implemented.
+- **OTAA credentials are derived on boot from the SAMD21 silicon serial** (`keygen.h` + gitignored `keygen_salt.h`), so one binary serves every board and there are no hardcoded per-board keys to mis-flash. The secret salt is unversioned (like `lmic_project_config.h`); the build won't compile without `keygen_salt.h` (copy from `keygen_salt.h.example`). See `docs/generate-keys-from-feather-serial.md`.
 - **`doc/test-payloads.md` is stale** — its vectors are 8-byte V5 payloads and predate the interval byte. Don't trust them against the current decoder.

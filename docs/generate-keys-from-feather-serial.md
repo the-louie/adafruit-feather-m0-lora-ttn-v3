@@ -1,52 +1,74 @@
-Managing unique keys across multiple boards is a massive headache. Hardcoding them in the sketch means you will inevitably flash the wrong keys to the wrong board during a future upgrade, which immediately breaks the connection.
+# Deriving OTAA keys from the SAMD21 silicon serial
 
-For an Arduino M0 based project, the absolute easiest approach is to generate the LoRaWAN credentials dynamically using the microcontroller's hardware.
-Generating Keys from the Silicon ID
+**Status: implemented** (2026-07-26). Replaces the previous proposal.
 
-The SAMD21 chip on your Arduino M0 has a permanent, 128-bit unique serial number burned into it at the factory. Instead of typing out arrays of hex values in your code, you can tell the firmware to read this silicon ID on boot and use it to construct your DevEUI and AppKey.
+Hardcoding per-board keys means eventually flashing the wrong keys to the wrong
+board and silently breaking its join. Instead, every board derives its own
+DevEUI + AppKey on boot from its permanent 128-bit silicon serial mixed with a
+shared secret salt. **One binary, flashed to every board**, and each reconstructs
+its correct keys.
 
-You can then define a single, shared secret "salt" in your code to mix with the serial number. This ensures your keys are secure but repeatable.
+## How it works
 
-The benefits of this approach:
+- **`readChipSerial()`** (in the sketch) reads the SAMD21's factory serial — four
+  words at `0x0080A00C`, `0x0080A040`, `0x0080A044`, `0x0080A048` — into 16 bytes,
+  most-significant word first. (This is the same value the Arduino SAMD core
+  publishes as the USB serial number, so a board's derived keys can be computed
+  from its USB `iSerial` before it is even flashed.)
+- **`keygen.h`** (`deriveCredentials()`, host-tested, Arduino-free) runs **HKDF-SHA256**
+  with per-field domain separation:
+  ```
+  PRK    = HKDF-Extract(salt, serial16)
+  AppKey = HKDF-Expand(PRK, "gisebo-appkey", 16)
+  DevEUI = HKDF-Expand(PRK, "gisebo-deveui", 8)   then shaped (see below)
+  ```
+- **DevEUI shape (fork 1A):** the 8 derived bytes are made a well-formed
+  **locally-administered, individual EUI-64** — clear the I/G bit, set the U/L bit
+  (`devEui[0] = (b & ~0x01) | 0x02`). This claims no IEEE OUI block, so it can
+  never collide with a TTN-issued `70B3D57ED0…` DevEUI.
+- **JoinEUI is not derived** — it is the fixed fleet constant `0000000000000001`,
+  kept in the sketch.
+- **Endianness:** `deriveCredentials()` emits canonical **MSB-first** DevEUI/AppKey
+  (what the TTN console shows and what DEV prints). `os_getDevEui()` byte-reverses
+  to LMIC's little-endian via `euiToLmicLE()`; the AppKey needs no reversal.
 
-    You compile exactly one firmware file.
+The crypto is vendored in `sha256.h` (SHA-256 + HMAC + HKDF), so the exact same
+code runs on-device and in the host tests. Correctness is pinned by known-answer
+vectors: FIPS 180-4, RFC 4231, RFC 5869 (`test/host/test_sha256.cpp`), and the
+derivation is cross-checked against an independent Python implementation
+(`test/host/test_keygen.cpp`).
 
-    You flash that exact same file to every single tank sensor.
+## The salt is the crown jewel
 
-    If you need to upgrade the code in two years, you just compile the new version and flash it, the board will automatically reconstruct its correct keys on boot.
+The chip serial is **public** — it is printed at boot and readable over SWD.
+So the security of every board's AppKey rests **entirely on the salt** staying
+secret. Anyone with the compiled binary or the salt can reconstruct any board's
+AppKey from its serial. This is acceptable for a private fleet **only if the
+binary and repo stay private**.
 
-The Workflow:
+- The real salt lives in **`keygen_salt.h`**, which is **gitignored** — an
+  unversioned required file, exactly like `lmic_project_config.h`. The build
+  will not compile without it.
+- Copy `keygen_salt.h.example` → `keygen_salt.h` and fill in 32 random bytes
+  (`openssl rand -hex 32`). **Back the salt up offline** — losing it means every
+  board must be re-registered; leaking it compromises every AppKey.
+- Host tests use a separate throwaway test salt, so the real salt never appears
+  in the repo or the test vectors.
 
-    You flash the universal firmware to a new board.
+## Workflow: registering a new board
 
-    You plug it into your computer and open the Serial Monitor.
+1. Ensure `keygen_salt.h` exists, then flash the universal firmware (any board).
+2. Strap **DEV** (pin 11 → GND) and open the serial monitor at 9600. The board
+   prints:
+   ```
+   DevEUI (MSB, register in TTN): 86A2A75D253A16AC
+   AppKey (MSB): 3A76C5A52F230150DCAF568A1FF17082
+   JoinEUI: 0000000000000001
+   ```
+3. Register the device in TTN (`telamon-temperature`, EU868): **Enter end device
+   specifics manually**, Frequency plan **Europe 863-870 MHz (SF9 for RX2)**,
+   LoRaWAN **MAC V1.0.3**, JoinEUI `0000000000000001`, then paste the printed
+   DevEUI and AppKey. Attach the device's decoder from `decoders/`.
 
-    The board prints its dynamically generated DevEUI and AppKey to the screen.
-
-    You copy those values and register the new device in your backend.
-
-Adding the Generated Device to The Things Network (TTN)
-
-Once your board spits out its unique keys in the serial monitor, you will need to tell the network server to accept them. Here is the step-by-step guide to registering these custom keys in the TTN Console:
-
-    Log in to your TTN Console and select your specific Application.
-
-    In the left-hand menu, click on End devices.
-
-    Click the blue + Register end device button on the top right.
-
-    Under "Input Method", click the Enter end device specifics manually tab.
-
-    In the "Frequency plan" dropdown, select Europe 863-870 MHz (SF9 for RX2 - recommended).
-
-    In the "LoRaWAN version" dropdown, select MAC V1.0.3 (this is the standard for the LMIC library you are using).
-
-    Under "Provisioning information", paste the JoinEUI (AppEUI) that you decided to use for all your devices.
-
-    Click Confirm.
-
-    Paste the unique DevEUI and AppKey that your Arduino printed to the serial monitor into their respective fields.
-
-    Click the Register end device button at the bottom.
-
-Would you like me to write the C++ function that reads the SAMD21 hardware registers and formats them into the LMIC os_getDevEui and os_getDevKey buffers?
+Because the DevEUI/AppKey are a pure function of `(serial, salt)`, a re-flash two
+years later reconstructs the same keys — no re-registration needed.
