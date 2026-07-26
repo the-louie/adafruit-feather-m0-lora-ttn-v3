@@ -31,6 +31,8 @@ int main() {
     check(persistValid(&s), "freshly initialised state is valid");
     check(s.seasonState == 0 && s.uplinkCounter == 0 && s.harvestMilliAmpHours == 0,
           "init zeroes the body");
+    check(s.diagLastSentFaults == 0 && s.diagLastSentEpoch == 0,
+          "init zeroes the diagnostics rate-limit fields");
   }
 
   // -------------------------------------------------------------------------
@@ -146,6 +148,29 @@ int main() {
     size_t headerToFirstBody = offsetof(PersistState, seasonState);
     check(headerToFirstBody == PERSIST_HEADER_BYTES,
           "PERSIST_HEADER_BYTES matches the real offset to the body");
+  }
+
+  // -------------------------------------------------------------------------
+  // 8. persistDecayedButFramed: tells decayed-RAM corruption (magic+version OK,
+  //    CRC bad) apart from a true cold boot (wrong magic). The diagnostics frame
+  //    reports the former as a fault and the latter as normal.
+  // -------------------------------------------------------------------------
+  {
+    PersistState s;
+    persistInit(&s);
+    s.uplinkCounter = 3;
+    persistSeal(&s);
+    check(!persistDecayedButFramed(&s), "sealed state is not 'decayed'");
+
+    // Partial decay: a body byte flips, magic and version stand.
+    s.surfaceTempC = 9.5f;   // change without resealing
+    check(persistDecayedButFramed(&s), "magic+version intact but CRC bad -> decayed");
+
+    // True cold boot: magic is garbage -> NOT 'decayed', just cold.
+    uint8_t sram[sizeof(PersistState)];
+    std::memset(sram, 0xA5, sizeof(sram));
+    check(!persistDecayedButFramed((PersistState *)sram),
+          "wrong magic (true cold boot) is not 'decayed'");
   }
 
   std::printf("\n%s\n\n", failures ? "FAILED" : "all passed");

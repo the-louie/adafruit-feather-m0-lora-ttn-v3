@@ -32,7 +32,8 @@
 #include <string.h>
 
 #define PERSIST_MAGIC   0x54544E31u   // "TTN1" -- change if the MEANING changes
-#define PERSIST_VERSION 1             // bump on ANY field change to the body
+#define PERSIST_VERSION 2             // bump on ANY field change to the body
+                                      //   v2: added diag rate-limit fields
 
 struct PersistState {
   uint32_t magic;
@@ -50,6 +51,8 @@ struct PersistState {
   float    surfaceTempC;         // season driver, last good reading
   float    sunEwma;              // solar sun-presence average
   uint32_t rtcEpoch;             // stashed before NVIC_SystemReset (S03-06)
+  uint16_t diagLastSentFaults;   // diagnostics.h rate-limit latch: faults last reported
+  uint32_t diagLastSentEpoch;    // ... and when (0 = never); survives soft resets
 };
 
 // CRC-16/CCITT-FALSE. Small, no table, adequate for catching decayed RAM -- this
@@ -81,6 +84,17 @@ inline bool persistValid(const PersistState *s) {
   if (s->magic != PERSIST_MAGIC) return false;
   if (s->version != PERSIST_VERSION) return false;
   return s->crc == persistComputeCrc(s);
+}
+
+// Distinguish decayed-RAM corruption from a true cold boot: our magic and
+// version survived but the CRC no longer matches. That is exactly the partial-
+// decay case the CRC exists to catch (see the header comment). Surfaced so the
+// diagnostics frame can report it -- a true cold boot (wrong magic) is normal on
+// a first power-up and is NOT a fault. See diagnostics.h DIAG_FAULT_PERSIST_CORRUPT.
+inline bool persistDecayedButFramed(const PersistState *s) {
+  return s->magic == PERSIST_MAGIC &&
+         s->version == PERSIST_VERSION &&
+         s->crc != persistComputeCrc(s);
 }
 
 // Call after mutating the body, before the reset that must preserve it.
