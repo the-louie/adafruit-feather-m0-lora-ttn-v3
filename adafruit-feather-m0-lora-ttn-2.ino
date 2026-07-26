@@ -32,6 +32,7 @@
 #include "policy_solar.h"
 #include "keygen.h"
 #include "keygen_salt.h"
+#include "diagnostics.h"
 #include <Adafruit_INA219.h>
 
 #define VBATPIN A7
@@ -184,6 +185,22 @@ static UplinkSchedule uplinkSched; // when to send, and the 4-bit uplink counter
 static uint32_t joinAttemptStart = 0;
 static bool joinSuccessBlinkPending = false;
 
+// --- Diagnostics (diagnostics.h): a separate error/health uplink on its own
+// FPort, so a field unit with no USB can still report faults. ---
+#define DIAG_FPORT_PROD 1
+#define DIAG_FPORT_DEV  2
+#define DIAG_MIN_RESEND_SECONDS 86400UL   // re-alert a persistent fault at most daily
+
+static uint8_t  g_resetCause = 0;      // PM->RCAUSE, latched at boot
+static bool     g_coldBoot = false;    // persist was not restored this boot
+static bool     g_persistCorrupt = false; // .noinit looked ours but the CRC failed
+static uint8_t  g_ds18Count = 0;       // OneWire device count, cached in setup
+static bool     g_ina219Present = false;  // the boot probe found the INA219
+static uint16_t g_probeConfig = 0;     // INA219 config register read during the probe
+static bool     g_ina219ReadOk = true; // solar: last live INA219 read looked plausible
+static bool     lastTxTimedOut = false;// the previous data uplink hit its TX timeout
+static bool     bootDiagSent = false;  // has the once-per-boot diagnostic frame gone out?
+
 // Batch buffer: newest at index 0. Each entry 2 bytes (int16)
 static uint16_t dataBuffer[MAX_BATCH];
 
@@ -244,10 +261,13 @@ static PowerVariant probeVariant() {
   ProbeResult attempts[PROBE_ATTEMPTS];
   for (uint8_t i = 0; i < PROBE_ATTEMPTS; i++) {
     attempts[i] = probeIna219Once();
+    g_probeConfig = attempts[i].configValue;  // config from the last attempt tried (diagnostics)
     if (probeAttemptFoundIna219(&attempts[i])) break;  // found -> no need to retry
     if (i + 1 < PROBE_ATTEMPTS) delay(PROBE_RETRY_MS);
   }
-  return probeDecide(attempts, PROBE_ATTEMPTS);
+  PowerVariant v = probeDecide(attempts, PROBE_ATTEMPTS);
+  g_ina219Present = (v == VARIANT_SOLAR);
+  return v;
 }
 
 // DeviceTimeReq reply. Called by LMIC after the RX window (S03-12).
@@ -343,6 +363,9 @@ void readAndBufferSensors() {
     uint16_t busMv = (uint16_t)(ina219.getBusVoltage_V() * 1000.0f);
     float currentMa = ina219.getCurrent_mA();
     if (currentMa < 0) currentMa = 0;   // reverse leakage blocked by the Schottky
+    // A hung/absent INA219 reads ~0 (or nonsense); a real li-ion+panel bus sits
+    // well inside this band. Surfaced as DIAG_FAULT_INA219_READ_FAIL.
+    g_ina219ReadOk = (busMv >= 500 && busMv < 20000);
     solarPolicy.ingestSample(busMv, currentMa, sleepIntervalSeconds);
     ina219.powerSave(true);   // ~15 uA between reads (S04-03)
 #endif
@@ -455,6 +478,9 @@ void transmitBatchAndWait() {
   if (!txComplete) {
     logPrintln(F("FATAL: TX Timeout. Clearing pending TX data."));
     LMIC_clrTxData();
+    lastTxTimedOut = true;   // surfaced on the next diagnostic frame
+  } else {
+    lastTxTimedOut = false;
   }
 
   if (runMode == 1) {
@@ -494,7 +520,88 @@ void transmitBatchAndWait() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Diagnostics: a separate error/health uplink (diagnostics.h). The judgement --
+// which faults, when to send, the rate limit -- is host-tested in the header;
+// this glue only gathers live inputs and transmits.
+// ---------------------------------------------------------------------------
+static void gatherDiagInputs(DiagInputs *in) {
+  in->isSolar        = (powerVariant == VARIANT_SOLAR);
+  in->isDev          = (runMode == 1);
+  in->resetCause     = g_resetCause;
+  in->bootCounter    = persist.bootCounter;
+  in->ds18Count      = g_ds18Count;
+  // A real reading is finite and above the DS18B20 disconnect sentinel (-127).
+  in->ds18ReadValid  = (surfaceTempC == surfaceTempC) && surfaceTempC > -100.0f;
+  in->coldBoot       = g_coldBoot;
+  in->persistCorrupt = g_persistCorrupt;
+  in->ina219Present  = g_ina219Present;
+  in->ina219ReadOk   = g_ina219ReadOk;
+  in->probeConfig    = g_probeConfig;
+  in->clockValid     = persist.clockValid;
+  in->lastTxTimeout  = lastTxTimedOut;
+  in->vbatMv         = (uint16_t)(VBAT_VOLTS() * 1000.0f);
+}
+
+// Transmit one diagnostic frame. Returns true only if it actually completed.
+// Deliberately does NOT touch currentIntervalIndex or the uplink counter -- a
+// diagnostic is out-of-band and must not perturb the data cadence.
+static bool sendDiagFrame(const DiagInputs *in, uint16_t faults) {
+  if (LMIC.opmode & OP_TXRXPEND) {
+    logPrintln(F("diag: OP_TXRXPEND, defer to next cycle"));
+    return false;
+  }
+  uint8_t payload[DIAG_PAYLOAD_LEN];
+  diagEncode(payload, in, faults);
+  uint8_t diagFPort = (runMode == 0) ? DIAG_FPORT_PROD : DIAG_FPORT_DEV;
+
+  txComplete = false;
+  LMIC_setTxData2(diagFPort, payload, DIAG_PAYLOAD_LEN, 0);
+  uint32_t waitStart = millis();
+  while (!txComplete && (millis() - waitStart < 120000UL)) {
+    os_runloop_once();
+  }
+  if (!txComplete) {
+    logPrintln(F("diag: TX timeout, clearing"));
+    LMIC_clrTxData();
+    return false;
+  }
+  return true;
+}
+
+// Decide whether a diagnostic frame is due this cycle and, if so, send it.
+// Call once per operational cycle, AFTER the data uplink is handled.
+static void evaluateAndMaybeSendDiag() {
+  DiagInputs in;
+  gatherDiagInputs(&in);
+  uint16_t faults = diagComputeFaults(&in);
+  bool bootFrame = !bootDiagSent;
+  uint32_t nowEpoch = persist.clockValid ? rtc.getEpoch() : 0;
+
+  if (!diagShouldSend(bootFrame, faults,
+                      persist.diagLastSentFaults, persist.diagLastSentEpoch,
+                      nowEpoch, persist.clockValid, DIAG_MIN_RESEND_SECONDS)) {
+    return;
+  }
+
+  logPrint(F("*** DIAGNOSTIC FRAME (fault bits="));
+  logPrint(faults);
+  logPrintln(F(") ***"));
+  if (sendDiagFrame(&in, faults)) {
+    diagMarkSent(&persist.diagLastSentFaults, &persist.diagLastSentEpoch,
+                 faults, nowEpoch, persist.clockValid);
+    persistSeal(&persist);   // the rate-limit latch must survive a reset
+    bootDiagSent = true;     // the once-per-boot frame is now out
+  }
+}
+
 void setup() {
+  // Latch the reset cause first thing -- PM->RCAUSE holds why the MCU last reset
+  // (power-on, brownout, external, watchdog, system). It persists until the next
+  // reset, but read it before anything else touches the power manager. Reported
+  // on the diagnostic frame so a field unit's reboots are attributable.
+  g_resetCause = PM->RCAUSE.reg;
+
   // 1. Hardware stabilize
   delay(5000);
   SPI.begin();
@@ -526,7 +633,12 @@ void setup() {
 
   // Restore state across a soft reset, or cold-boot if it is not ours / not
   // this layout / corrupt (persist.h). bootCounter increments either way.
+  // Capture WHY this is (or is not) a cold boot before persistInit overwrites it.
+  // A true cold boot (wrong magic) is normal; decayed RAM (magic+version intact,
+  // CRC bad) is a fault the diagnostic frame reports.
+  g_persistCorrupt = persistDecayedButFramed(&persist);
   bool coldBoot = !persistValid(&persist);
+  g_coldBoot = coldBoot;
   if (coldBoot) {
     persistInit(&persist);
   }
@@ -624,10 +736,11 @@ void setup() {
   //
   // Reporting nothing is recoverable. Reporting the wrong sensor's water
   // temperature as if it were the surface is not.
-  sensorBusAmbiguous = (sensors.getDeviceCount() > 1);
+  g_ds18Count = sensors.getDeviceCount();   // cached for the diagnostic frame
+  sensorBusAmbiguous = (g_ds18Count > 1);
   if (sensorBusAmbiguous) {
     logPrint(F("ERROR: more than one DS18B20 on A2, found "));
-    logPrintln(sensors.getDeviceCount());
+    logPrintln(g_ds18Count);
     logPrintln(F("Temperatures will report as null until the bus has exactly one device."));
   }
   // Force ArduinoLowPower to configure the RTC exactly once, via its own API,
@@ -707,6 +820,12 @@ void loop() {
     logPrintln(F("*** TRIGGERING UPLINK (first after join, or batch full) ***"));
     transmitBatchAndWait();
   }
+
+  // Diagnostics: one frame per boot (after the first read, so the sensor/probe
+  // inputs are populated), plus a rate-limited frame when a fault appears. Sent
+  // after the data uplink so it never delays telemetry. Out-of-band: does not
+  // touch the interval or the uplink counter.
+  evaluateAndMaybeSendDiag();
 
   // STATE 3: Sleep
   logPrint(F("Entering sleep for "));
