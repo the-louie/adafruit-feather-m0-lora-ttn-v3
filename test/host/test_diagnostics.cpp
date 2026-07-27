@@ -169,6 +169,56 @@ int main() {
     check(lastFaults == (uint16_t)(f | f2), "no clock: bits accumulate across faults");
   }
 
+  // -------------------------------------------------------------------------
+  // 6. Verbose DEV frame: the DEV gate and the encoder byte map.
+  // -------------------------------------------------------------------------
+  // Gate: DEV-only, once at boot, then every interval.
+  check(!verboseShouldSend(false, false, 0, 0, 3600000u), "verbose: PROD never sends (not booted)");
+  check(!verboseShouldSend(false, true, 10000000u, 0, 3600000u), "verbose: PROD never sends (elapsed)");
+  check(verboseShouldSend(true, false, 0, 0, 3600000u), "verbose: DEV first cycle sends");
+  check(!verboseShouldSend(true, true, 1000000u, 1000000u, 3600000u), "verbose: DEV within interval suppressed");
+  check(!verboseShouldSend(true, true, 1000000u + 3599999u, 1000000u, 3600000u), "verbose: DEV just before interval suppressed");
+  check(verboseShouldSend(true, true, 1000000u + 3600000u, 1000000u, 3600000u), "verbose: DEV at interval sends");
+  // millis() wrap: now has wrapped past 0, elapsed is still correct via unsigned math.
+  check(verboseShouldSend(true, true, 100u, 0xFFFFFFFFu - 1000u, 3600000u) == false,
+        "verbose: wrap, only ~1100ms elapsed -> suppressed");
+  check(verboseShouldSend(true, true, 3600000u, 0xFFFFFFFFu - 1000u, 3600000u),
+        "verbose: wrap, >=interval elapsed -> sends");
+
+  {
+    VerboseSnapshot v{};
+    v.isSolar=true; v.isDev=true; v.coldBoot=true; v.clockValid=true; v.ina219Present=true;
+    v.bonusActive=true; v.busAmbiguous=false;
+    v.resetCause=0x40; v.bootCounter=3; v.intervalIndex=4; v.seasonState=2; v.voltageBand=1;
+    v.batteryMv=4209; v.panelBusMv=5070; v.panelCurrentTenthMa=125; v.sunEwma255=31;
+    v.harvestMah=1234; v.ina219Config=0x399F; v.ds18Count=1; v.surfaceTempCenti=2160; v.faults=0;
+    uint8_t buf[DIAG_VERBOSE_LEN];
+    uint8_t n = diagEncodeVerbose(buf, &v);
+    check(n == DIAG_VERBOSE_LEN, "verbose: length is 22");
+    check(buf[0]==DIAG_VERBOSE_SCHEMA, "verbose byte0 schema");
+    check(buf[1]==(DIAG_INFO_SOLAR|DIAG_INFO_DEV|DIAG_INFO_COLD_BOOT|DIAG_INFO_CLOCK_VALID|
+                   DIAG_INFO_INA219_SEEN|DIAG_INFO_BONUS_ACTIVE),
+          "verbose byte1 info bits (bonus set, bus-ambig clear)");
+    check(buf[2]==0x40, "verbose byte2 reset cause");
+    check(buf[3]==3, "verbose byte3 boot counter");
+    check(buf[4]==4, "verbose byte4 interval index");
+    check(buf[5]==(uint8_t)((2&3)|((1&3)<<2)), "verbose byte5 season|band");
+    check(((buf[6]<<8)|buf[7])==4209, "verbose battery mV");
+    check(((buf[8]<<8)|buf[9])==5070, "verbose panel bus mV");
+    check(((buf[10]<<8)|buf[11])==125, "verbose panel current (0.1mA)");
+    check(buf[12]==31, "verbose sun ewma");
+    check(((buf[13]<<8)|buf[14])==1234, "verbose harvest mAh");
+    check(((buf[15]<<8)|buf[16])==0x399F, "verbose ina219 config");
+    check(buf[17]==1, "verbose ds18 count");
+    check((int16_t)((buf[18]<<8)|buf[19])==2160, "verbose surface temp centi");
+    check(((buf[20]<<8)|buf[21])==0, "verbose faults (all clear)");
+  }
+  { // invalid temp sentinel round-trips as 0x7FFF
+    VerboseSnapshot v{}; v.surfaceTempCenti=VERBOSE_TEMP_INVALID;
+    uint8_t buf[DIAG_VERBOSE_LEN]; diagEncodeVerbose(buf, &v);
+    check((int16_t)((buf[18]<<8)|buf[19])==VERBOSE_TEMP_INVALID, "verbose temp sentinel 0x7FFF");
+  }
+
   std::printf("\n%s\n\n", failures ? "FAILED" : "all passed");
   return failures ? 1 : 0;
 }

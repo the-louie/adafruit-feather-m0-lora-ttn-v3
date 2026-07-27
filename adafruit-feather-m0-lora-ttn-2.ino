@@ -201,6 +201,15 @@ static bool     g_ina219ReadOk = true; // solar: last live INA219 read looked pl
 static bool     lastTxTimedOut = false;// the previous data uplink hit its TX timeout
 static bool     bootDiagSent = false;  // has the once-per-boot diagnostic frame gone out?
 
+// Verbose DEV diagnostics (diagnostics.h) -- a full-state snapshot on its own
+// FPort, DEV-only, on a fixed cadence. DEV never deep-sleeps, so millis() advances
+// and gates the cadence directly. For a short planned outage you may want finer
+// resolution than hourly -- just lower VERBOSE_INTERVAL_MS.
+#define VERBOSE_FPORT_DEV   3
+#define VERBOSE_INTERVAL_MS 3600000UL   // ~1 hour
+static uint32_t lastVerboseMillis = 0;
+static bool     verboseSentOnce = false;
+
 // Batch buffer: newest at index 0. Each entry 2 bytes (int16)
 static uint16_t dataBuffer[MAX_BATCH];
 
@@ -543,30 +552,35 @@ static void gatherDiagInputs(DiagInputs *in) {
   in->vbatMv         = (uint16_t)(VBAT_VOLTS() * 1000.0f);
 }
 
-// Transmit one diagnostic frame. Returns true only if it actually completed.
-// Deliberately does NOT touch currentIntervalIndex or the uplink counter -- a
-// diagnostic is out-of-band and must not perturb the data cadence.
-static bool sendDiagFrame(const DiagInputs *in, uint16_t faults) {
+// Send `len` bytes on `fport` and block for TXCOMPLETE (2-min timeout). Shared by
+// the fault frame and the verbose frame. Out-of-band: never touches
+// currentIntervalIndex or the uplink counter, so it cannot perturb the data
+// cadence. Returns true only if the TX actually completed.
+static bool txFrameAndWait(uint8_t fport, uint8_t *payload, uint8_t len) {
   if (LMIC.opmode & OP_TXRXPEND) {
-    logPrintln(F("diag: OP_TXRXPEND, defer to next cycle"));
+    logPrintln(F("out-of-band frame: OP_TXRXPEND, defer to next cycle"));
     return false;
   }
-  uint8_t payload[DIAG_PAYLOAD_LEN];
-  diagEncode(payload, in, faults);
-  uint8_t diagFPort = (runMode == 0) ? DIAG_FPORT_PROD : DIAG_FPORT_DEV;
-
   txComplete = false;
-  LMIC_setTxData2(diagFPort, payload, DIAG_PAYLOAD_LEN, 0);
+  LMIC_setTxData2(fport, payload, len, 0);
   uint32_t waitStart = millis();
   while (!txComplete && (millis() - waitStart < 120000UL)) {
     os_runloop_once();
   }
   if (!txComplete) {
-    logPrintln(F("diag: TX timeout, clearing"));
+    logPrintln(F("out-of-band frame: TX timeout, clearing"));
     LMIC_clrTxData();
     return false;
   }
   return true;
+}
+
+// Transmit one fault/diagnostic frame (FPort 1 PROD / 2 DEV).
+static bool sendDiagFrame(const DiagInputs *in, uint16_t faults) {
+  uint8_t payload[DIAG_PAYLOAD_LEN];
+  diagEncode(payload, in, faults);
+  return txFrameAndWait((runMode == 0) ? DIAG_FPORT_PROD : DIAG_FPORT_DEV,
+                        payload, DIAG_PAYLOAD_LEN);
 }
 
 // Decide whether a diagnostic frame is due this cycle and, if so, send it.
@@ -592,6 +606,62 @@ static void evaluateAndMaybeSendDiag() {
                  faults, nowEpoch, persist.clockValid);
     persistSeal(&persist);   // the rate-limit latch must survive a reset
     bootDiagSent = true;     // the once-per-boot frame is now out
+  }
+}
+
+// Gather a full-state snapshot for the verbose DEV frame from live state.
+static void gatherVerbose(VerboseSnapshot *v) {
+  DiagInputs in; gatherDiagInputs(&in);
+  bool solar = (powerVariant == VARIANT_SOLAR);
+  v->isSolar       = solar;
+  v->isDev         = (runMode == 1);
+  v->coldBoot      = g_coldBoot;
+  v->clockValid    = persist.clockValid;
+  v->ina219Present = g_ina219Present;
+  v->bonusActive   = solarPolicy.bonusActive_;
+  v->busAmbiguous  = sensorBusAmbiguous;
+  v->resetCause    = g_resetCause;
+  v->bootCounter   = persist.bootCounter;
+  v->intervalIndex = currentIntervalIndex;
+  v->seasonState   = solar ? solarPolicy.seasonState_ : primaryPolicy.seasonState_;
+  v->voltageBand   = solar ? solarPolicy.voltageState_ : primaryPolicy.voltageState_;
+  v->batteryMv     = in.vbatMv;
+  v->panelBusMv    = solar ? solarPolicy.lastBusMv_ : 0;
+  float ma = solar ? solarPolicy.lastCurrentMa_ : 0.0f;
+  if (ma < 0) ma = 0;
+  uint32_t tenth = (uint32_t)(ma * 10.0f + 0.5f);
+  v->panelCurrentTenthMa = tenth > 65535 ? 65535 : (uint16_t)tenth;
+  float e = solarPolicy.ewma_;
+  if (e < 0) e = 0; if (e > 1) e = 1;
+  v->sunEwma255    = (uint8_t)(e * 255.0f + 0.5f);
+  v->harvestMah    = solarPolicy.harvest_.totalMah;
+  v->ina219Config  = g_probeConfig;
+  v->ds18Count     = g_ds18Count;
+  if (surfaceTempC == surfaceTempC && surfaceTempC > -100.0f) {
+    float c = surfaceTempC * 100.0f;
+    if (c > 32767.0f)  c = 32767.0f;
+    if (c < -32768.0f) c = -32768.0f;
+    v->surfaceTempCenti = (int16_t)c;
+  } else {
+    v->surfaceTempCenti = VERBOSE_TEMP_INVALID;
+  }
+  v->faults        = diagComputeFaults(&in);
+}
+
+// Verbose full-state snapshot -- DEV-only, once at boot then ~hourly. Out-of-band.
+// Call once per operational cycle, after the fault-diagnostic evaluation.
+static void evaluateAndMaybeSendVerbose() {
+  if (!verboseShouldSend(runMode == 1, verboseSentOnce, millis(),
+                         lastVerboseMillis, VERBOSE_INTERVAL_MS)) {
+    return;
+  }
+  VerboseSnapshot v; gatherVerbose(&v);
+  uint8_t payload[DIAG_VERBOSE_LEN];
+  diagEncodeVerbose(payload, &v);
+  logPrintln(F("*** VERBOSE DEV DIAGNOSTIC (FPort 3) ***"));
+  if (txFrameAndWait(VERBOSE_FPORT_DEV, payload, DIAG_VERBOSE_LEN)) {
+    lastVerboseMillis = millis();
+    verboseSentOnce = true;
   }
 }
 
@@ -826,6 +896,9 @@ void loop() {
   // after the data uplink so it never delays telemetry. Out-of-band: does not
   // touch the interval or the uplink counter.
   evaluateAndMaybeSendDiag();
+
+  // Verbose full-state snapshot -- DEV-only, ~hourly. Also out-of-band.
+  evaluateAndMaybeSendVerbose();
 
   // STATE 3: Sleep
   logPrint(F("Entering sleep for "));

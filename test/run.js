@@ -135,6 +135,35 @@ check('diag: wrong length is rejected loudly', () => {
   return problems;
 });
 
+// Verbose DEV snapshot (FPort 3) -- full-state "all-clear" frame.
+check('verbose: DEV full-state snapshot (FPort 3)', () => {
+  const decodeUplink = loadDecoder(DECODERS['gisebo-05']);
+  const out = decodeUplink({ bytes: [
+    0x01, 0x3F, 0x40, 0x03, 0x04, 0x06, 0x10, 0x71, 0x13, 0xCE,
+    0x00, 0x7D, 0x1F, 0x04, 0xD2, 0x39, 0x9F, 0x01, 0x08, 0x70, 0x00, 0x00],
+    fPort: 3 });
+  const problems = diff(out.data, {
+    version: 7, frame: 'verbose', diag_schema: 1,
+    mode: 'SOLAR', run_mode: 'DEV',
+    cold_boot: true, clock_valid: true, ina219_seen: true, bonus_active: true, sensor_bus_ambiguous: false,
+    reset_cause: 64, reset_causes: ['system'],
+    boot_counter: 3, interval_index: 4, interval_minutes: 30,
+    season: 'Winter', voltage_offset: 1,
+    battery_v: 4.209, panel_v: 5.07, panel_ma: 12.5, sun_ewma: 0.122, harvest_mah: 1234,
+    ina219_config: '0x399F', ina219_config_ok: true, ds18b20_count: 1,
+    surface_temp: 21.6,
+    fault_bits: 0, faults: [], healthy: true,
+  });
+  if (out.errors && out.errors.length) problems.push(`unexpected errors: ${out.errors.join('; ')}`);
+  return problems;
+});
+
+check('verbose: wrong length rejected', () => {
+  const decodeUplink = loadDecoder(DECODERS['gisebo-05']);
+  const out = decodeUplink({ bytes: [1, 0, 0], fPort: 3 });
+  return (out.errors && out.errors.length && Object.keys(out.data).length === 0) ? [] : ['expected a length error'];
+});
+
 // ---------------------------------------------------------------------------
 // 2. Harness self-tests. A test harness that silently does nothing is worse
 //    than no harness, so prove it fails when it should.

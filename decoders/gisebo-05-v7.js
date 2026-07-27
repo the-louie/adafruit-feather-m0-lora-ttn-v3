@@ -40,6 +40,11 @@ const DIAG_FPORT_PROD = 1;
 const DIAG_FPORT_DEV = 2;
 const DIAG_PAYLOAD_LEN = 11;
 
+// Verbose DEV diagnostics ("all-clear" full-state snapshot), DEV-only, FPort 3.
+const VERBOSE_FPORT_DEV = 3;
+const VERBOSE_PAYLOAD_LEN = 22;
+const SEASON_NAMES = ["Summer", "Fall/Spring", "Winter"];
+
 // Fault bitmap (bytes 5-6). Order matches diagnostics.h DIAG_FAULT_*.
 const DIAG_FAULT_NAMES = [
   [0x0001, "ds18b20_not_found"],
@@ -110,6 +115,58 @@ function decodeDiagnostic(bytes, fPort) {
   return { data, warnings, errors };
 }
 
+// Verbose DEV snapshot (FPort 3). Mirrors diagnostics.h diagEncodeVerbose().
+function decodeVerbose(bytes) {
+  const data = {}, warnings = [], errors = [];
+  if (bytes.length !== VERBOSE_PAYLOAD_LEN) {
+    errors.push(`verbose FPort ${VERBOSE_FPORT_DEV} expects ${VERBOSE_PAYLOAD_LEN} bytes, got ${bytes.length}`);
+    return { data: {}, warnings, errors };
+  }
+  const schema = bytes[0];
+  if (schema !== 1) warnings.push(`unknown verbose schema ${schema}; decoding as v1`);
+  const info = bytes[1];
+  data.version = FIRMWARE_VERSION;
+  data.frame = "verbose";
+  data.diag_schema = schema;
+  data.mode = (info & 0x01) ? "SOLAR" : "PRIMARY";
+  data.run_mode = (info & 0x02) ? "DEV" : "PROD";
+  data.cold_boot = !!(info & 0x04);
+  data.clock_valid = !!(info & 0x08);
+  data.ina219_seen = !!(info & 0x10);
+  data.bonus_active = !!(info & 0x20);
+  data.sensor_bus_ambiguous = !!(info & 0x40);
+
+  data.reset_cause = bytes[2];
+  data.reset_causes = namesForBits(bytes[2], RESET_CAUSE_NAMES);
+  data.boot_counter = bytes[3];
+  data.interval_index = bytes[4] <= 10 ? bytes[4] : 10;
+  data.interval_minutes = INTERVAL_MINUTES[data.interval_index];
+  data.season = SEASON_NAMES[bytes[5] & 0x03] || "unknown";
+  data.voltage_offset = (bytes[5] >> 2) & 0x03;
+
+  data.battery_v = Number((((bytes[6] << 8) | bytes[7]) / 1000).toFixed(3));
+  data.panel_v = Number((((bytes[8] << 8) | bytes[9]) / 1000).toFixed(3));
+  data.panel_ma = Number((((bytes[10] << 8) | bytes[11]) * 0.1).toFixed(1));
+  data.sun_ewma = Number((bytes[12] / 255).toFixed(3));
+  data.harvest_mah = (bytes[13] << 8) | bytes[14];
+
+  const probeCfg = (bytes[15] << 8) | bytes[16];
+  data.ina219_config = "0x" + probeCfg.toString(16).toUpperCase().padStart(4, "0");
+  data.ina219_config_ok = probeCfg === 0x399F;
+  data.ds18b20_count = bytes[17];
+
+  const rawT = (bytes[18] << 8) | bytes[19];
+  data.surface_temp = rawT === 0x7FFF ? null
+    : Number(((rawT >= 0x8000 ? rawT - 0x10000 : rawT) / 100).toFixed(2));
+
+  const faultBits = (bytes[20] << 8) | bytes[21];
+  data.fault_bits = faultBits;
+  data.faults = namesForBits(faultBits, DIAG_FAULT_NAMES);
+  data.healthy = faultBits === 0;
+
+  return { data, warnings, errors };
+}
+
 function decodeTempSlot(v) {
   if (v === 250) return { skip: true };
   if (v === 251) return { temperature_state: "too cold" };
@@ -137,6 +194,9 @@ function decodeUplink(input) {
   // independent, so dispatch before the data-payload FPort/length checks.
   if (fPort === DIAG_FPORT_PROD || fPort === DIAG_FPORT_DEV) {
     return decodeDiagnostic(bytes, fPort);
+  }
+  if (fPort === VERBOSE_FPORT_DEV) {
+    return decodeVerbose(bytes);
   }
 
   const isSolar = (fPort === 11 || fPort === 21);

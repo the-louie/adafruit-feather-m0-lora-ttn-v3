@@ -169,3 +169,90 @@ inline void diagMarkSent(uint16_t *lastSentFaults, uint32_t *lastSentEpoch,
     if (clockValid) *lastSentEpoch = nowEpoch;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Verbose DEV diagnostics frame (own FPort, DEV-only).
+//
+// The fault frame above only speaks up on faults. During bench/DEV bring-up we
+// also want to see the FULL live state on a steady cadence and confirm
+// everything looks OK -- battery, panel V/I, sun EWMA, harvest, season/band,
+// interval, sensor, INA219 config -- not just "no faults". This is that snapshot.
+//
+// DEV-only by construction: the .ino gates the whole path on runMode==DEV, so it
+// never spends airtime/battery in the field. Battery is deliberately not a
+// concern in DEV, so it goes out on a fixed cadence with no rate/fault gating.
+// ---------------------------------------------------------------------------
+#define DIAG_VERBOSE_SCHEMA 1
+#define DIAG_VERBOSE_LEN    22
+
+// Extra info bits used only by the verbose frame (bytes 0-4 of the info byte are
+// the shared DIAG_INFO_* above).
+#define DIAG_INFO_BONUS_ACTIVE 0x20
+#define DIAG_INFO_BUS_AMBIG    0x40
+
+// Sentinel for an unavailable surface temperature (NaN / disconnected sensor).
+#define VERBOSE_TEMP_INVALID ((int16_t)0x7FFF)
+
+struct VerboseSnapshot {
+  bool     isSolar;
+  bool     isDev;
+  bool     coldBoot;
+  bool     clockValid;
+  bool     ina219Present;
+  bool     bonusActive;
+  bool     busAmbiguous;
+  uint8_t  resetCause;
+  uint8_t  bootCounter;
+  uint8_t  intervalIndex;         // 0..10
+  uint8_t  seasonState;           // 0 Summer, 1 Fall/Spring, 2 Winter
+  uint8_t  voltageBand;           // 0..3
+  uint16_t batteryMv;
+  uint16_t panelBusMv;
+  uint16_t panelCurrentTenthMa;   // 0.1 mA/LSB
+  uint8_t  sunEwma255;            // 0..255 = 0.0..1.0
+  uint16_t harvestMah;
+  uint16_t ina219Config;
+  uint8_t  ds18Count;
+  int16_t  surfaceTempCenti;      // centi-degC; VERBOSE_TEMP_INVALID if unavailable
+  uint16_t faults;                // same bitmap as the fault frame (0 = all clear)
+};
+
+// Serialise the verbose frame. Returns DIAG_VERBOSE_LEN. Byte map documented in
+// TODO.md item 16 and mirrored by the decoder's decodeVerbose().
+inline uint8_t diagEncodeVerbose(uint8_t *buf, const VerboseSnapshot *v) {
+  buf[0] = DIAG_VERBOSE_SCHEMA;
+  uint8_t info = 0;
+  if (v->isSolar)       info |= DIAG_INFO_SOLAR;
+  if (v->isDev)         info |= DIAG_INFO_DEV;
+  if (v->coldBoot)      info |= DIAG_INFO_COLD_BOOT;
+  if (v->clockValid)    info |= DIAG_INFO_CLOCK_VALID;
+  if (v->ina219Present) info |= DIAG_INFO_INA219_SEEN;
+  if (v->bonusActive)   info |= DIAG_INFO_BONUS_ACTIVE;
+  if (v->busAmbiguous)  info |= DIAG_INFO_BUS_AMBIG;
+  buf[1] = info;
+  buf[2] = v->resetCause;
+  buf[3] = v->bootCounter;
+  buf[4] = v->intervalIndex;
+  buf[5] = (uint8_t)((v->seasonState & 0x03) | ((v->voltageBand & 0x03) << 2));
+  buf[6]  = (uint8_t)(v->batteryMv >> 8);           buf[7]  = (uint8_t)(v->batteryMv & 0xFF);
+  buf[8]  = (uint8_t)(v->panelBusMv >> 8);          buf[9]  = (uint8_t)(v->panelBusMv & 0xFF);
+  buf[10] = (uint8_t)(v->panelCurrentTenthMa >> 8); buf[11] = (uint8_t)(v->panelCurrentTenthMa & 0xFF);
+  buf[12] = v->sunEwma255;
+  buf[13] = (uint8_t)(v->harvestMah >> 8);          buf[14] = (uint8_t)(v->harvestMah & 0xFF);
+  buf[15] = (uint8_t)(v->ina219Config >> 8);        buf[16] = (uint8_t)(v->ina219Config & 0xFF);
+  buf[17] = v->ds18Count;
+  uint16_t t = (uint16_t)v->surfaceTempCenti;
+  buf[18] = (uint8_t)(t >> 8);                       buf[19] = (uint8_t)(t & 0xFF);
+  buf[20] = (uint8_t)(v->faults >> 8);              buf[21] = (uint8_t)(v->faults & 0xFF);
+  return DIAG_VERBOSE_LEN;
+}
+
+// Should the verbose frame transmit this cycle? DEV-only: once on the first
+// operational cycle after boot (sentOnce==false), then every intervalMs. The
+// subtraction is unsigned so it is correct across a millis() wrap.
+inline bool verboseShouldSend(bool isDev, bool sentOnce, uint32_t nowMs,
+                              uint32_t lastMs, uint32_t intervalMs) {
+  if (!isDev) return false;
+  if (!sentOnce) return true;
+  return (uint32_t)(nowMs - lastMs) >= intervalMs;
+}
