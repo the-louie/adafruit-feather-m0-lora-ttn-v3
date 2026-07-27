@@ -69,3 +69,20 @@ alarm if: device_id ∈ SOLAR_DEVICES AND f_port ∈ {10, 20}
 **Not an alarm — a one-time data note.** gisebo-01's entire 9-byte history is timestamped one interval (30 min) late (the `idle(750)` defect, introduced 2026-03-09 12:03). gisebo-05's will not be. Same site, same panels, a systematic 30-minute discontinuity at cutover.
 
 **Decision (2026-07-17): annotate, do not correct.** Rewriting a real series risks corrupting it, and TTN retains only ~3 days so the bulk is already in influx. Add a grafana annotation at the cutover and a standing note across gisebo-01's span. gisebo-04 (V5) is **not** affected — V5 predates the defect (see `20260717-1230_dating-the-lag-and-clearing-v5.md`).
+
+---
+
+## A7 — diagnostic frame: any fault (added 2026-07-27) — direct signal
+
+**New instrument.** The firmware now emits a **fault/health frame on FPort 1 (PROD) / 2 (DEV)** (`diagnostics.h`), decoded to `faults[]` / `healthy` / `reset_cause` / `ina219_seen`, plus a **DEV verbose frame on FPort 3** with the full state. This replaces *inferring* faults from the data stream with a direct report.
+
+**Rules:**
+```
+f_port ∈ {1, 2, 3} AND decoded.faults not empty        -> alarm (severity by fault)
+f_port ∈ {1, 2, 3} AND decoded.ina219_seen == false
+    AND device_id ∈ SOLAR_DEVICES                      -> alarm (INA219 misdetect; see A1)
+f_port ∈ {1, 2, 3} AND reset_cause ∈ {brownout_12, brownout_33, watchdog}
+    trending up                                        -> investigate (power/instability)
+```
+
+Note the INA219 misdetect (A1) now has a **direct** signal (`ina219_seen == false`) in addition to the FPort/battery heuristic — the misdetect that was confirmed on gisebo-05 2026-07-27 (warm-reset probe bug, since fixed) would have fired this immediately. The verbose FPort-3 frame is DEV-only; alarms should not expect it in PROD.

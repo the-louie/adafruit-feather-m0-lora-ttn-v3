@@ -756,3 +756,43 @@ FPort map after this: data 10/20 (primary) · 11/21 (solar); faults 1 (PROD) / 2
 - On hardware: a **PROD-strapped** unit produces **zero** FPort-3 frames; a **DEV** unit produces one ~hourly whose decoded fields match the item-15 bench reference.
 
 This extends the error/diagnostics frame that shipped 2026-07-26 (`docs/dev-notes/20260726-1905_diagnostic-error-uplink.md`, verified on gisebo-05's first flashed boot). It is the tool that makes item 15's power-metering verification observable over the air.
+
+---
+
+## 17. Verify `.noinit` survives the real reset path (`NVIC_SystemReset`)
+
+**Status:** Observation logged 2026-07-27 (`docs/dev-notes/20260727-1901_noinit-did-not-survive-rst-pin.md`). Not started.
+**Complexity:** Low–Medium
+**Estimated time:** 3–5 h
+**Sprint:** 06 (folds into S06-06)
+
+### Problem
+
+On gisebo-05, a physical **RST-button press** (`reset_cause: external`) produced
+`cold_boot: true`, `boot_counter: 1` — the `.noinit` `PersistState` did **not**
+survive (season/interval/harvest/clock reset to defaults). Likely the button
+glitched the 3.3 V rail → partial SRAM decay → the CRC correctly cold-booted
+(`persist.h` working as designed). **But the path that actually matters —
+`NVIC_SystemReset()`, the PROD join-failure reset that the clock-preservation
+(S03-06) depends on — is unverified.** An RST-pin press is a harder reset than
+`NVIC_SystemReset()`, so it does not stand in for it.
+
+### Solution / verification
+
+1. Trigger `NVIC_SystemReset()` controllably — force a join failure (bad AppKey, or
+   no gateway) to hit the PROD 3-min timeout → 15-min sleep → reset, or add a DEV
+   test hook — and confirm `boot_counter` **increments** and season/interval/harvest
+   carry over (i.e. `cold_boot: false`).
+2. Characterise the RST-pin and watchdog resets for completeness.
+3. Confirm a brief power interruption yields a cold boot (CRC catches false-valid
+   magic) — the standing **S06-06** test.
+
+Now cheap to observe over the air: the diagnostic (FPort 2) and verbose (FPort 3)
+frames report `reset_cause`, `cold_boot`, and `boot_counter` directly.
+
+### Impact if it does not survive
+
+Recoverable but real: season re-enters at Summer (~2 uplinks to settle), interval
+resets to 5-min initial, the **harvest accumulator resets to 0** (visible backend
+discontinuity), clock re-requested, uplink counter resets. The harvest
+discontinuity and the clock-preservation dependency are the ones to confirm.

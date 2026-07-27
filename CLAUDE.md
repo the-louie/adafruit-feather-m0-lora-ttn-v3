@@ -48,6 +48,8 @@ These are deliberate and load-bearing. Don't undo them without asking:
 
 A runtime I2C probe for the INA219 selects the variant — one binary for every board.
 
+**The probe MUST soft-reset the INA219 before reading its config (`variant_probe.h` / `probeIna219Once`).** The probe recognises an INA219 by its config register reading the power-on reset value `0x399F`. But after `setCalibration_16V_400mA()` the register reads **`0x019F`**, and on a **warm MCU reset** (RST button, watchdog, the PROD join-failure `NVIC_SystemReset()`) the INA219 stays powered and still holds `0x019F` — so the probe read `0x019F ≠ 0x399F`, misdetected a present sensor as absent, and booted a **solar unit into the PRIMARY policy** (the A1 catastrophe: wrong bands → parks at a long interval). Writing RST (config bit 15) before the read returns it to `0x399F`. This was a real defect confirmed on gisebo-05 2026-07-27 (`docs/dev-notes/20260727-1848_ina219-warm-reset-misdetect.md`) — do not remove the soft-reset.
+
 | | primary | solar |
 |---|---|---|
 | pack | 6 V (4×AA or 2× 3 V lithium) | 1S2P 18650 li-ion + panel |
@@ -63,9 +65,9 @@ Both share the season machine and the voltage-band hysteresis. The solar variant
 |---|---|---|
 | gisebo-01 | 9-byte v6, 30 min | **PRODUCTION, frozen; retired at cutover** |
 | gisebo-04 | 8-byte v5, 5 min fixed | test unit in a fridge (cold lithium test) — **do not disturb** |
-| gisebo-05 | v7 solar | the target of all v3 work; not yet created |
+| gisebo-05 | v7 solar | **LIVE on the bench (DEV-strapped, FPort 21): flashed 2026-07-27, joined, solar detected, reporting** |
 
-gisebo-05 **replaces** gisebo-01 (sprint 08 cutover); the two are never in production together. Decoders are per-device (`decoders/`), one per unit.
+gisebo-05 **replaces** gisebo-01 (sprint 08 cutover); the two are never in production together. Decoders are per-device (`decoders/`), one per unit. gisebo-05 was registered in TTN (`telamon-temperature`, EU868) and flashed with the current firmware 2026-07-27; its OTAA keys are derived on boot from the silicon serial, so its TTN DevEUI is the derived one (`86A2A75D253A16AC`), not the app-block DevEUI in the older provisioning note.
 
 ## DEV vs PROD
 
@@ -96,6 +98,22 @@ Interval index → minutes: `[unused, 1, 5, 15, 30, 60, 120, 360, 720, 1440, 100
 
 Any change to the payload must land in `transmitBatchAndWait()` and the device's decoder in `decoders/` together.
 
+## Diagnostics uplinks (added 2026-07-27, `diagnostics.h`)
+
+Health/telemetry rides **separate FPorts** from the data payload, decoded by the same per-device formatter (`decoders/gisebo-05-v7.js`). All are **out-of-band** — sent after the data uplink via `txFrameAndWait()`, and never touch `currentIntervalIndex` or the uplink counter. The full FPort map:
+
+| purpose | PROD | DEV | length | notes |
+|---|---|---|---|---|
+| data (primary) | 10 | 20 | 9 B | |
+| data (solar) | 11 | 21 | 15 B | |
+| **fault/health** | **1** | **2** | 11 B | variant-independent |
+| **verbose full-state** | — | **3** | 22 B | **DEV-only** |
+
+- **Fault frame (FPort 1/2)** — the `diagnostics.h` fault bitmap + reset cause + INA219 probe config + battery, so a field unit with no USB reports a dead DS18B20, flaky I2C, decayed-RAM persist, TX timeout, or low battery. Send policy: **one per boot** (after the first read), plus a **new distinct fault reported promptly**, plus a persistent fault re-alerted at most once/day — spam-proof with or without a clock. The rate-limit latch lives in the CRC-protected persist struct. It exists because the core 9-byte payload carries **no status at all** (only the solar variant's byte 14 does). See `docs/dev-notes/20260726-1905_diagnostic-error-uplink.md`.
+- **Verbose frame (FPort 3, DEV-only)** — a 22-byte full-state snapshot (battery, panel V/I, sun EWMA, harvest, season/band, interval, sensor, INA219 config, reset/boot, faults), sent once at boot then **~hourly** via a plain `millis()` gate (DEV never deep-sleeps; `VERBOSE_INTERVAL_MS` is the knob — battery cost is a non-issue in DEV). Confirms "everything looks OK", not just "no faults". PROD emits none. See `docs/dev-notes/20260727-1804_verbose-dev-diagnostics-frame.md`.
+- **Season is on the wire for the first time** (verbose byte 5). `SeasonState` is `WINTER=0, MID=1, SUMMER=2` (`season.h`) — the decoder's `SEASON_NAMES` must match that order.
+- Any new diagnostic FPort must land in the `.ino`, `diagnostics.h`, and the decoder together, and be re-uploaded to the TTN formatter.
+
 ## Interval selection
 
 `calculate_interval_index(tempC, voltageV)` picks a seasonal base from water temperature with 1 °C hysteresis (Summer ≥16 °C → index 4; Fall/Spring 8–15 °C → 5; Winter <8 °C → 7), then adds a battery penalty of 0–3 steps (≥5.0 V, ≥4.3 V, ≥3.5 V, below). The result is clamped to 1–10.
@@ -117,9 +135,12 @@ Run **`./scripts/setup-toolchain.sh`** as your normal user (no root). It install
 ```
 arduino-cli compile --fqbn adafruit:samd:adafruit_feather_m0 .
 # baseline 2026-07-17: 61632 bytes (23%) of program storage
+# 2026-07-27 with diagnostics + verbose + probe fix: ~72.9 kB (27%)
 ```
 
 Pinned versions: adafruit:samd 1.7.17, **MCCI LMIC 6.0.1**, Arduino Low Power 1.2.2, RTCZero 1.6.0, OneWire 2.3.8, DallasTemperature 4.0.6.
+
+**Flashing does NOT work from this Claude environment — compile only.** `arduino-cli upload` / direct `bossac` cannot reach the SAMD21 bootloader over this USB passthrough (the 1200 bps touch resets the board but the bootloader port never re-surfaces, and `bossac` hangs — no CDC bulk data). No `sudo`/root to reset the USB stack. **The operator flashes on their own machine:** compile here, hand off the `.ino.bin` (from `~/.cache/arduino/sketches/<hash>/`), and flash locally — Arduino IDE, or double-tap RESET + `bossac … --offset=0x2000 -w -v <bin> -R`. Windows PowerShell needs the call operator: `& "…\bossac.exe" …`. Not UF2 — the plain Feather M0 uses the serial BOSSA bootloader. (Also in memory `flashing-feather-m0-in-this-env`.)
 
 **The region trap.** `CFG_eu868` must be set in the library's `lmic_project_config.h` — inside the library, not this repo, so it is invisible and unversioned. `reference/lmic_project_config.h` is the known-good copy. The stock file ships with **`CFG_us915` enabled**, so naively adding `eu868` defines two regions and LMIC refuses to build. Disable every region, enable exactly one. `CFG_sx1276_radio` is not a region — it picks the RFM95's chip and stays.
 
