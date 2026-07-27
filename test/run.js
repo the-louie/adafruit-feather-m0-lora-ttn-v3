@@ -85,6 +85,21 @@ const DIAG_VECTORS = [
     },
   },
   {
+    name: 'REAL gisebo-05 boot diagnostic (captured 2026-07-27T17:40:05Z, FPort 2)',
+    fPort: 2,
+    bytes: [0x01, 0x1F, 0x40, 0x01, 0x01, 0x00, 0x00, 0x39, 0x9F, 0x10, 0x71],
+    expected: {
+      version: 7, frame: 'diagnostic', diag_schema: 1,
+      mode: 'SOLAR', run_mode: 'DEV',
+      cold_boot: true, clock_valid: true, ina219_seen: true,
+      reset_cause: 64, reset_causes: ['system'],
+      boot_counter: 1, ds18b20_count: 1,
+      fault_bits: 0, faults: [], healthy: true,
+      ina219_config: '0x399F', ina219_config_ok: true,
+      battery_v: 4.209,
+    },
+  },
+  {
     name: 'primary PROD, DS18B20 missing + low battery, watchdog reset',
     fPort: 1,
     bytes: [1, 0x08, 0x20, 3, 0, 0x00, 0x41, 0x00, 0x00, 0x0C, 0xE4],
