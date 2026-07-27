@@ -675,3 +675,56 @@ Things that cannot be verified any other way:
 ### Notes
 
 **Serial and solar are mutually exclusive — DEV mode and solar are not.** USB puts 5 V on the same pin the panel feeds, so the Schottky blocks the panel and the INA219 reads ~0 mA on a 5 V bus. But **DEV mode is set by the strap (pin 11), not by USB presence**: strap DEV and leave USB unplugged and you get FPort 21, the busy-wait sleep path, no serial (the `while (!Serial)` wait simply times out) — and the panel feeding the USB pin normally, so the INA219 sees real solar. That is exactly what S07-04 does. The thing you cannot have is serial logs *while* observing solar; telemetry goes over the air instead.
+
+---
+
+## 15. Bench-verify battery and solar (INA219) metering against ground truth
+
+**Complexity:** Medium
+**Estimated time:** 5–7 h
+**Sprint:** 07 (solar bring-up); overlaps S07-01/04/05
+
+### Problem
+
+The power telemetry has never been checked against a reference. `getBatteryVoltage()` reads A7 through a 100k/100k divider; the solar path reads panel **bus voltage** and current from the INA219 (16 V/400 mA calibration, 0.1 mA/LSB) and feeds the sun EWMA and the harvest accumulator. All of this is host-tested *logic* and compile-verified *glue* — but the actual ADC/I2C readings, the divider ratio, and the INA219 calibration are unverified on silicon. A wrong divider or calibration silently skews the battery bands (and thus the interval ladder) and the harvest figure, with no symptom in the data.
+
+### Solution
+
+On the bench, sweep known inputs and compare reported vs reference:
+- **battery_v:** bench PSU 3.3–6.6 V vs DMM; confirm the divider ratio and the ~6.59 V A7 saturation (payload top-clamp 7.095 V is unreachable).
+- **panel_v:** INA219 bus voltage vs DMM across the panel range.
+- **panel_ma:** known resistive load, DMM in series; confirm the 16 V/400 mA cal (0.1 mA/LSB) and the reverse-leakage `< 0 → 0` clamp.
+- **harvest_mah:** timed known current vs I×t; quantify the no-MPPT error bar (feeds S07-05/06).
+- **sun EWMA / bonus gate:** cross the `sunPresent()` bus-voltage threshold; confirm the two-gate bonus latches and drops.
+
+Read the values **over the air** — the FPort 2 diagnostic frame already surfaces `battery_v` / `ina219_config` / `ina219_seen`, and item 16's verbose DEV frame surfaces the full set — so this is verifiable USB-free (serial and solar are mutually exclusive; see item 12 Notes).
+
+### Verification
+
+Reported within tolerance of reference (e.g. ±2 % battery, ±5 % current); `ina219_config == 0x399F`; harvest error bar stated. Ties to the sprint-06/07 hardware checklist (INA219 wiring/calibration, per-wake charge).
+
+---
+
+## 16. DEV-strapped verbose over-the-air diagnostics ("all-clear") frame
+
+**Complexity:** Medium
+**Estimated time:** 6–8 h
+**Sprint:** 07 (paired with item 15)
+
+### Problem
+
+The diagnostics frame (`diagnostics.h`, FPort 1/2) is **fault-focused** — it fires on a new fault plus one boot frame, and its payload is a compact bitmap. During bench/DEV bring-up there is no USB-free way to watch the *full* live state and confirm everything looks OK (not just "no faults"): battery/panel/EWMA/harvest/season/interval/sensor values. USB is unavailable or avoided (and, on solar, mutually exclusive with observing the panel — item 12 Notes), and data frames are batched hours apart.
+
+### Solution
+
+When `STRAP_PIN` reads **DEV** (`runMode == 1`), enable a **verbose diagnostics uplink on its own new FPort** (proposed **3**, DEV-only — no PROD counterpart, so it never spends airtime/battery in the field). Reuse the `diagnostics.h` pattern: a fuller snapshot — battery mV, panel bus mV + current, sun EWMA, harvest, season/voltage-band state, interval index, clock validity, boot + reset cause, sensor count + last temperature, INA219 config. Cadence tuned for bench watching (e.g. every operational cycle in DEV, or every N wakes). Strictly DEV-gated so PROD never emits it. Keep the judgement-vs-glue split: host-test the snapshot encoder **and the DEV gate**; add a decoder branch for the new FPort.
+
+FPort map after this: data 10/20 (primary) · 11/21 (solar); faults 1 (PROD) / 2 (DEV); **verbose 3 (DEV)**.
+
+### Verification
+
+A PROD-strapped unit emits **no** FPort-3 frames (assert the `runMode` gate in host tests + confirm in the field); a DEV unit emits it with fields decoding correctly against a bench reference (item 15); decoder round-trips the new FPort. Airtime/duty impact is DEV-only by construction.
+
+### Notes — design decisions to settle
+
+Exact FPort number; DEV-only vs an on-request PROD variant; cadence; the payload field set (a superset of the fault frame). This is the tool that makes item 15's battery/solar verification observable over the air. The error/diagnostics frame it extends shipped 2026-07-26 (`docs/dev-notes/20260726-1905_diagnostic-error-uplink.md`), verified on gisebo-05's first flashed boot.

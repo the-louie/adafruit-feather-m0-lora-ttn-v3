@@ -15,13 +15,15 @@ Tasks are broken down under `docs/sprints/sprint-NN/`.
 10. **Backend alarms and monitoring** - Low - 5–7 h - Uplinks are the only instrument. Probe misdetect (FPort 10 + battery <4.5 V) is the highest-value one — without it a loose INA219 connector silently parks a unit at a 7-day interval. Sprints 01, 05.
 11. **Hardware BOM decisions** - Research - 3–5 h remaining - *Partially resolved.* **No MPPT — decided 2026-07-17**: no energy case against ~10× surplus, the healthy-battery gate covers the signal risk, and the INA219's 128-sample averaging mitigates the measurement risk. First order placed (Feather, DS18B20, INA219, panel, pack). Supercap rating and over-discharge protection still open. Sprints 01, 07.
 12. **On-device verification** - Medium - 10–14 h - Hardware arrives later than sprint 03, so sprints 02–05 ship verified by compilation and host tests alone. Sprint 06 (core) and 07 (solar) verify retroactively, each with a 4 h remediation buffer.
+15. **Bench-verify battery + solar (INA219) metering** - Medium - 5–7 h - The battery divider, INA219 bus V / current / harvest, and the sun-EWMA gate are host-tested logic + compile-verified glue but never checked against a reference. Sweep known PSU/load inputs vs a DMM; confirm the divider ratio, the 16 V/400 mA cal (0.1 mA/LSB), and the harvest error bar. Read over the air via the FPort 2 diag frame + item 16. Sprint 07.
+16. **DEV-strapped verbose over-the-air diagnostics frame** - Medium - 6–8 h - The fault frame (FPort 1/2) only reports faults; add a DEV-gated verbose snapshot on its own FPort (proposed 3, DEV-only) carrying the full battery/panel/EWMA/harvest/season/interval/sensor state so bench bring-up can confirm "all OK" without USB. Reuse `diagnostics.h`; host-test the DEV gate; add a decoder branch. Sprint 07.
 
 
 ---
 
 ## Summary
 
-12 open items. Item 11 is partially resolved. **Items 13 and 14 are DONE.** **Item 13 (the repo decoder is not what runs) is DONE** — both live formatters exported to `decoders/`, diffed, and the stale `ttn-decoder-v6.js` deleted. Planned across 7 sprints in `docs/sprints/` (115 tasks, 1 developer, ~30 h per sprint).
+14 open items (1–12, 15, 16). Item 11 is partially resolved. **Items 13 and 14 are DONE.** **Item 13 (the repo decoder is not what runs) is DONE** — both live formatters exported to `decoders/`, diffed, and the stale `ttn-decoder-v6.js` deleted. Items **15–16** were added 2026-07-27 after the error/diagnostics frame shipped and was verified on gisebo-05's first flashed boot: bench-verify power metering, and a DEV-gated verbose over-the-air diagnostics frame. Planned across 7 sprints in `docs/sprints/` (115 tasks, 1 developer, ~30 h per sprint).
 
 **Two confirmed defects lead the list**, both proven from the 2026-07-16 production capture rather than from reasoning. Item 1 means every PROD temperature reading is one interval late — plausible-looking and silently wrong. Item 2 means a third of all uplinks ever sent carry a short batch, and the reboot flag has never once fired. Neither was found by testing, because nothing executable ever checked the firmware↔decoder contract — which is what item 3 exists to fix, and why item 3's harness is scheduled before the vectors it will run.
 
