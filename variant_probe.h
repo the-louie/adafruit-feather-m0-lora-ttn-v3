@@ -39,6 +39,16 @@
 #define INA219_REG_CONFIG        0x00
 #define INA219_CONFIG_RESET_VALUE 0x399F
 
+// After setCalibration_16V_400mA() the config register reads 0x019F, NOT the
+// power-on reset default. So on a WARM MCU reset (RST button, watchdog, the PROD
+// join-failure NVIC_SystemReset) the INA219 stays powered and still holds 0x019F,
+// and this probe -- which recognises only 0x399F -- would misread a present
+// sensor as absent, booting a solar unit into the PRIMARY policy. probeIna219Once()
+// in the .ino MUST soft-reset the INA219 (write config bit 15, RST) before reading,
+// so a present-but-calibrated sensor comes back as 0x399F. Regression on gisebo-05
+// 2026-07-27; see docs/dev-notes/20260727-*_ina219-warm-reset-misdetect.md.
+#define INA219_CONFIG_CALIBRATED_VALUE 0x019F
+
 #define PROBE_ATTEMPTS   3
 #define PROBE_RETRY_MS   50
 

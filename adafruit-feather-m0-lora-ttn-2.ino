@@ -247,6 +247,21 @@ const lmic_pinmap lmic_pins = {
 static ProbeResult probeIna219Once() {
   ProbeResult r = {false, false, 0};
 
+  // Soft-reset the INA219 BEFORE reading its config. On a WARM MCU reset (RST
+  // button, watchdog, the PROD join-failure NVIC_SystemReset) the INA219 stays
+  // powered and still holds the config we wrote last boot -- 0x019F from
+  // setCalibration_16V_400mA -- which is NOT the power-on default 0x399F this
+  // probe recognises. Without this reset the sensor reads as absent and a solar
+  // unit boots the PRIMARY policy (the A1 misdetect; seen on gisebo-05 2026-07-27).
+  // Writing RST (config bit 15) returns the register to 0x399F. A NAK here
+  // (nothing at 0x40) is harmless; setCalibration re-configures it later.
+  Wire.beginTransmission(INA219_I2C_ADDR);
+  Wire.write(INA219_REG_CONFIG);
+  Wire.write((uint8_t)0x80);   // config MSB: RST bit (0x8000), MSB-first
+  Wire.write((uint8_t)0x00);   // config LSB
+  Wire.endTransmission();
+  delay(1);                    // INA219 reset completes in < 1 ms (datasheet)
+
   Wire.beginTransmission(INA219_I2C_ADDR);
   r.addressAcked = (Wire.endTransmission() == 0);
   if (!r.addressAcked) return r;

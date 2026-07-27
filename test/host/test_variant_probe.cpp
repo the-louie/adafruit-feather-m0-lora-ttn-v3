@@ -47,6 +47,18 @@ int main() {
     ProbeResult n = ackButNoRead();
     check(!probeAttemptFoundIna219(&n),
           "ACK but no config read -> NOT found (flaky bus, not a sensor)");
+
+    // A present-but-already-calibrated INA219 (warm reset holds 0x019F from
+    // setCalibration_16V_400mA) is NOT the reset value, so the DECISION rejects
+    // it -- which is exactly why probeIna219Once() must soft-reset the sensor to
+    // 0x399F before reading. Regression guard for the gisebo-05 2026-07-27
+    // misdetect (solar booted PRIMARY after an RST-button reset).
+    ProbeResult cal = { true, true, INA219_CONFIG_CALIBRATED_VALUE };
+    check(!probeAttemptFoundIna219(&cal),
+          "calibrated 0x019F is not 0x399F -> the .ino must soft-reset before reading");
+    ProbeResult afterReset = { true, true, INA219_CONFIG_RESET_VALUE };
+    check(probeAttemptFoundIna219(&afterReset),
+          "after soft-reset the INA219 reads 0x399F -> recognised");
   }
 
   // -------------------------------------------------------------------------
