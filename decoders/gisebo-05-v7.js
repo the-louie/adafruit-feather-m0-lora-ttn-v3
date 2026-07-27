@@ -43,7 +43,8 @@ const DIAG_PAYLOAD_LEN = 11;
 // Verbose DEV diagnostics ("all-clear" full-state snapshot), DEV-only, FPort 3.
 const VERBOSE_FPORT_DEV = 3;
 const VERBOSE_PAYLOAD_LEN = 22;
-const SEASON_NAMES = ["Summer", "Fall/Spring", "Winter"];
+// Order matches season.h SeasonState: WINTER=0, MID=1, SUMMER=2.
+const SEASON_NAMES = ["Winter", "Fall/Spring", "Summer"];
 
 // Fault bitmap (bytes 5-6). Order matches diagnostics.h DIAG_FAULT_*.
 const DIAG_FAULT_NAMES = [

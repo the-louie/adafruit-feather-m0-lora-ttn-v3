@@ -148,7 +148,7 @@ check('verbose: DEV full-state snapshot (FPort 3)', () => {
     cold_boot: true, clock_valid: true, ina219_seen: true, bonus_active: true, sensor_bus_ambiguous: false,
     reset_cause: 64, reset_causes: ['system'],
     boot_counter: 3, interval_index: 4, interval_minutes: 30,
-    season: 'Winter', voltage_offset: 1,
+    season: 'Summer', voltage_offset: 1,
     battery_v: 4.209, panel_v: 5.07, panel_ma: 12.5, sun_ewma: 0.122, harvest_mah: 1234,
     ina219_config: '0x399F', ina219_config_ok: true, ds18b20_count: 1,
     surface_temp: 21.6,
