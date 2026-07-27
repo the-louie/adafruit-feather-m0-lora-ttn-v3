@@ -706,6 +706,7 @@ All four channels within tolerance; `ina219_config == 0x399F`; harvest error bar
 
 ## 16. DEV-strapped verbose over-the-air diagnostics ("all-clear") frame
 
+**Status:** **Implemented 2026-07-27** (`0ba9fb0`, `docs/dev-notes/20260727-1804_verbose-dev-diagnostics-frame.md`); host + decoder tested, compiles. Pending on-hardware verification (flash gisebo-05 DEV, confirm ~hourly FPort-3 frames; a PROD unit emits none).
 **Complexity:** Medium
 **Estimated time:** 6–8 h
 **Sprint:** 07 (paired with item 15)
