@@ -1176,3 +1176,84 @@ Host test: a verbose send with `tx_timeout` set clears the pending flag; a faile
 verbose send leaves it set. Over the air: after a refused frame, `tx_timeout`
 must appear on exactly **one** verbose frame and be absent from the next, rather
 than persisting for 24 h.
+
+---
+
+## 24. `clarity` is gated on the device clock, which it does not use
+
+**Status:** Not started. Found 2026-07-28 while verifying how the solar day is
+derived. **Decoder-only — no firmware change, no re-flash.**
+**Complexity:** Low (part a) / Medium (part b)
+**Estimated time:** 1–2 h (a), folds into the verbose-frame work (b)
+**Sprint:** 07
+
+### Problem (a) — the gate is simply wrong
+
+`decoders/gisebo-05-v7.js`:
+
+```js
+if (data.clock_valid && input.recvTime) {
+  const frac = expectedDaylightFraction(new Date(input.recvTime), SITE_LATITUDE_DEG);
+  data.clarity = frac > 0 ? Number((data.sun_ewma / frac).toFixed(3)) : null;
+} else {
+  data.clarity = null;
+}
+```
+
+Neither operand needs the device's RTC:
+
+- `expectedDaylightFraction()` takes **`input.recvTime`** — the network server's
+  own receive timestamp, which The Things Stack attaches to every uplink and
+  passes to the formatter as a `Date` — plus `SITE_LATITUDE_DEG`, a constant.
+- `sun_ewma` is computed on-device from `dt = sleepIntervalSeconds`, not from
+  the RTC (`solar_signal.h`: `alpha = 1 - exp(-dt / TAU)`).
+
+So `data.clock_valid` — a flag about the *device's* clock — suppresses a
+calculation made entirely from server-side time and a compile-time constant.
+Effect: `clarity` is `null` for the whole early life of any device, and forever
+on any unit whose `DeviceTimeReq` never lands. Fix is to drop `data.clock_valid`
+from the condition and keep `input.recvTime`.
+
+### Problem (b) — the gate the code actually needs, and does not have
+
+The likely *intent* was to suppress a meaningless clarity figure, and that
+concern is real — but `clock_valid` does not measure it. `clarity` is
+meaningless until the **EWMA has converged**, and nothing checks that.
+
+Live example from gisebo-05 right now: `clock_valid: true`, `sun_ewma: 0.157`,
+and `expected_daylight_fraction ≈ 0.68` for 2026-07-28 at 57.81°N — giving
+`clarity ≈ 0.23`, which reads as "panel 77% obscured" when the truth is "booted
+four hours ago and the EWMA has taken four samples". The current gate does not
+catch this, and removing it does not make it worse — the case is unguarded
+either way.
+
+A correct convergence gate needs to know how long the EWMA has been
+accumulating, which **the payload does not carry**. That is the same missing
+field as the proposed verbose-frame `uptime` / `cycle count` (see the
+2026-07-28 discussion of DEV status uplinks): with it, the decoder could
+suppress or flag `clarity` until roughly one time constant (24 h) has elapsed
+since the last cold boot. Until then, `expected_daylight_fraction` is already
+emitted alongside, so the backend can at least judge for itself.
+
+### Solution / verification
+
+1. **(a)** Remove `data.clock_valid &&` from the condition. Re-upload the
+   formatter to TTN — the repo file must stay byte-identical to what is pasted
+   into the console (`test/harness.js` loads it as text precisely so the two
+   cannot drift).
+2. **Update the existing test, which asserts the current behaviour.**
+   `test/run_v7.js` has a case `"clock invalid: clarity is null"` (the block
+   headed *v7 decoder — clock invalid -> clarity null*). It must become
+   "clock invalid but recvTime present → clarity is computed". Note this is a
+   test that was correct against the old intent and is wrong against the new
+   one — change it deliberately, do not delete it.
+3. **(b)** When the verbose frame gains an uptime/cycle-count field, add the
+   convergence gate and a test for "EWMA too young → clarity suppressed".
+
+### Why this is worth doing at all
+
+`clarity = sun_ewma / expected_daylight_fraction` is the only signal that
+separates "short winter day" from "snow, leaves or shade on the panel" — a fault
+a bare EWMA hides completely, and one that a field unit cannot otherwise report.
+Leaving it `null` for a device's whole early life disables exactly the diagnostic
+that early life most needs.
