@@ -404,15 +404,22 @@ void readAndBufferSensors() {
       uint32_t inaWake = millis();
       while (millis() - inaWake < 5) { os_runloop_once(); }
     }
+    // success() reflects only the MOST RECENT register read -- every accessor
+    // overwrites Adafruit_INA219::_success -- so it must be sampled after EACH
+    // read. Testing it once at the end would report a healthy part whenever the
+    // bus read failed and the current read happened to succeed, and busMv would
+    // then carry whatever the failed read left behind.
     uint16_t busMv = (uint16_t)(ina219.getBusVoltage_V() * 1000.0f);
+    bool busOk = ina219.success();
     float currentMa = ina219.getCurrent_mA();
+    bool currentOk = ina219.success();
     if (currentMa < 0) currentMa = 0;   // reverse leakage blocked by the Schottky
-    // Validity = the I2C transaction, not the value. A dark panel legitimately
+    // Validity = the I2C transactions, not the values. A dark panel legitimately
     // reads ~0 mV all night (that is the sun signal working), so a voltage
     // floor here would raise INA219_READ_FAIL every night; an absent or hung
     // part NAKs instead, which the library reports via success(). The top
     // clamp still catches garbage from a wedged bus that ACKs.
-    g_ina219ReadOk = ina219.success() && (busMv < 20000);
+    g_ina219ReadOk = busOk && currentOk && (busMv < 20000);
     solarPolicy.ingestSample(busMv, currentMa, sleepIntervalSeconds);
     ina219.powerSave(true);   // ~15 uA between reads (S04-03)
 #endif
@@ -748,6 +755,28 @@ static void evaluateAndMaybeSendVerbose() {
   if (txFrameAndWait(VERBOSE_FPORT_DEV, payload, DIAG_VERBOSE_LEN)) {
     lastVerboseMillis = millis();
     verboseSentOnce = true;
+    // This frame carried the fault bitmap (gatherVerbose -> diagComputeFaults),
+    // so the TX fault has now REACHED THE AIR -- clear the latch here too, not
+    // only after a diagnostic frame.
+    //
+    // Without this the latch deadlocks against its own rate limiter:
+    // diagShouldSend() refuses to send a diagnostic frame for a bit already in
+    // persist.diagLastSentFaults, and the periodic re-alert is capped at
+    // DIAG_MIN_RESEND_SECONDS -- so the only thing that could clear the latch is
+    // suppressed precisely because the fault was once reported. Seen on
+    // gisebo-05 2026-07-28: tx_timeout / healthy:false rode the 16:07, 17:07 and
+    // 18:07 verbose frames with nothing having failed since 15:07, and would
+    // have until the next day. It also made one old failure indistinguishable
+    // from an hourly recurring one -- the opposite of the latch's purpose.
+    //
+    // Ordering is safe: gatherVerbose() snapshotted the faults BEFORE the TX, so
+    // a frame that succeeded provably carried the bit, and a frame that failed
+    // re-arms the latch inside txFrameAndWait().
+    //
+    // DEV-only in effect (the verbose frame does not exist in PROD), which is
+    // the right asymmetry: DEV gets per-occurrence resolution for bench work,
+    // PROD keeps the once-per-day limit that protects duty cycle and battery.
+    if (v.faults & DIAG_FAULT_TX_TIMEOUT) g_txFaultPending = false;
   }
 }
 
