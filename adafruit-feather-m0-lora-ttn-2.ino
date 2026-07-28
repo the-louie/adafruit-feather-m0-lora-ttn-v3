@@ -33,6 +33,7 @@
 #include "keygen.h"
 #include "keygen_salt.h"
 #include "diagnostics.h"
+#include "ina219_bus.h"
 #include <Adafruit_INA219.h>
 
 #define VBATPIN A7
@@ -202,7 +203,10 @@ static bool     g_persistCorrupt = false; // .noinit looked ours but the CRC fai
 static uint8_t  g_ds18Count = 0;       // OneWire device count, cached in setup
 static bool     g_ina219Present = false;  // the boot probe found the INA219
 static uint16_t g_probeConfig = 0;     // INA219 config register read during the probe
-static bool     g_ina219ReadOk = true; // solar: last live INA219 read looked plausible
+static bool     g_ina219ReadOk = true; // solar: last live INA219 read passed the
+                                       // ina219_bus.h verdict (I2C + CNVR + sanity)
+static bool     g_ina219Ovf = false;   // solar: OVF math-overflow flag on the last
+                                       // live read -- current/power meaningless
 // An uplink failed (TX timeout, or the stack refused to queue) and no diagnostic
 // frame has reported it yet. A LATCH, not a last-attempt flag: the overnight
 // 2026-07-27/28 stall proved a plain flag can never reach the air -- the fault
@@ -303,6 +307,21 @@ static PowerVariant probeVariant() {
   PowerVariant v = probeDecide(attempts, PROBE_ATTEMPTS);
   g_ina219Present = (v == VARIANT_SOLAR);
   return v;
+}
+
+// Raw 2-byte read of the INA219 bus-voltage register (02h). The Adafruit
+// accessor discards bits 2..0 -- and bits 1/0 are CNVR and OVF, the only status
+// the part has. Same Wire mechanics as the probe; the interpretation of the
+// value is host-tested in ina219_bus.h.
+static bool ina219ReadBusRaw(uint16_t *out) {
+  Wire.beginTransmission(INA219_I2C_ADDR);
+  Wire.write(INA219_REG_BUS_ADDR);
+  if (Wire.endTransmission(false) != 0) return false;   // repeated start
+  if (Wire.requestFrom(INA219_I2C_ADDR, 2) != 2) return false;
+  uint16_t hi = Wire.read();
+  uint16_t lo = Wire.read();
+  *out = (uint16_t)((hi << 8) | lo);
+  return true;
 }
 
 // DeviceTimeReq reply. Called by LMIC after the RX window (S03-12).
@@ -422,30 +441,56 @@ void readAndBufferSensors() {
     // "sun present" in the dark, and 192 mAh of harvest that never flowed. See
     // docs/dev-notes/20260728-1230_ina219-powersave-freeze.md.
     ina219.powerSave(false);
-    // First conversion after wake: 12-bit shunt+bus continuous is ~1.1 ms
-    // (532 us each); 5 ms is comfortable margin. The wait sits inside the
-    // DS18B20 conversion window measured from convStart, so it costs nothing.
+    // Gate the read on CNVR (conversion ready) instead of a fixed delay. The
+    // wake above writes MODE=111, which CLEARS CNVR (a mode write, not to the
+    // excepted power-down/disable values), so CNVR set below proves a
+    // conversion completed AFTER the wake -- a blind delay cannot distinguish
+    // "converted" from "served the same stale registers", which is precisely
+    // how a whole night of frozen telemetry looked healthy. Polling reads reg
+    // 02h, which does NOT self-clear (only a Power-register read does, and
+    // this firmware never reads 03h). Worst-case legit conversion is 1.17 ms;
+    // the 10 ms budget sits inside the DS18B20 window, so it costs nothing.
+    // If the ADC config ever changes, a too-short budget FAULTS LOUDLY every
+    // wake instead of silently reading stale data. See ina219_bus.h.
+    uint16_t rawBus = 0;
+    bool busReadOk = false, convReady = false;
     {
       uint32_t inaWake = millis();
-      while (millis() - inaWake < 5) { os_runloop_once(); }
+      do {
+        busReadOk = ina219ReadBusRaw(&rawBus);
+        convReady = busReadOk && ina219BusConversionReady(rawBus);
+        if (convReady) break;
+        os_runloop_once();
+      } while (millis() - inaWake < INA219_CNVR_TIMEOUT_MS);
     }
-    // success() reflects only the MOST RECENT register read -- every accessor
-    // overwrites Adafruit_INA219::_success -- so it must be sampled after EACH
-    // read. Testing it once at the end would report a healthy part whenever the
-    // bus read failed and the current read happened to succeed, and busMv would
-    // then carry whatever the failed read left behind.
-    uint16_t busMv = (uint16_t)(ina219.getBusVoltage_V() * 1000.0f);
-    bool busOk = ina219.success();
+    uint16_t busMv = ina219BusMillivolts(rawBus);
+    bool ovf = busReadOk && ina219BusOverflow(rawBus);
+    // success() reflects only the MOST RECENT register read, so it is sampled
+    // immediately after the accessor it vouches for (the bus voltage now comes
+    // from the raw CNVR-gated read above, with its own ok flag).
     float currentMa = ina219.getCurrent_mA();
     bool currentOk = ina219.success();
     if (currentMa < 0) currentMa = 0;   // reverse leakage blocked by the Schottky
-    // Validity = the I2C transactions, not the values. A dark panel legitimately
-    // reads ~0 mV all night (that is the sun signal working), so a voltage
-    // floor here would raise INA219_READ_FAIL every night; an absent or hung
-    // part NAKs instead, which the library reports via success(). The top
-    // clamp still catches garbage from a wedged bus that ACKs.
-    g_ina219ReadOk = busOk && currentOk && (busMv < 20000);
-    solarPolicy.ingestSample(busMv, currentMa, ingestDt);
+    // OVF = the Current/Power CALCULATIONS are out of range ("data may be
+    // meaningless"). Unreachable in our config unless something structural
+    // broke -- most plausibly a corrupted Calibration register, rewritten on
+    // every current read. Bus voltage is a direct ADC result and stays valid,
+    // so the EWMA keeps its input; the current does not, so it must not reach
+    // the harvest accumulator. Surfaced as DIAG_FAULT_INA219_OVF.
+    g_ina219Ovf = ovf;
+    if (ovf) currentMa = 0;
+    // The verdict (ina219_bus.h): I2C ACKs + CNVR + < 20 V. Deliberately no
+    // lower bound -- a dark panel legitimately reads ~0 mV all night, and that
+    // IS the sun signal working.
+    g_ina219ReadOk = ina219LiveReadOk(busReadOk, convReady, currentOk, busMv);
+    if (g_ina219ReadOk) {
+      solarPolicy.ingestSample(busMv, currentMa, ingestDt);
+    }
+    // else: do NOT ingest. Feeding unconverted/garbage values to the EWMA and
+    // harvest is exactly the overnight failure this gate exists to stop; the
+    // skipped interval simply is not integrated, and the fault frame reports
+    // DIAG_FAULT_INA219_READ_FAIL. lastBusMv_/lastCurrentMa_ keep their prior
+    // values, so the payload shows the last GOOD sample, flagged unhealthy.
     ina219.powerSave(true);   // ~15 uA between reads (S04-03)
 #endif
   }
@@ -689,6 +734,7 @@ static void gatherDiagInputs(DiagInputs *in) {
   in->persistCorrupt = g_persistCorrupt;
   in->ina219Present  = g_ina219Present;
   in->ina219ReadOk   = g_ina219ReadOk;
+  in->ina219Ovf      = g_ina219Ovf;
   in->probeConfig    = g_probeConfig;
   in->clockValid     = persist.clockValid;
   in->lastTxTimeout  = g_txFaultPending;
