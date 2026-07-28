@@ -362,15 +362,15 @@ void onEvent(ev_t ev) {
 
 void readAndBufferSensors() {
   // Measure the conversion window from requestTemperatures(), NOT from the end
-  // of whatever we do inside it. The solar policy will read the INA219 in here
-  // (~68 ms of averaging); that must shrink the remaining wait, not extend the
-  // wake to 818 ms.
+  // of whatever we do inside it. The solar variant reads the INA219 in here
+  // (~7 ms: wake from powerdown + conversion); that must shrink the remaining
+  // wait, not extend the wake past 750 ms.
   uint32_t convStart = millis();
   sensors.requestTemperatures();
 
-  // The policy borrows part of the conversion window (SolarPolicy: ~68 ms of
-  // INA219 averaging). Because the wait below is measured from convStart, this
-  // SHRINKS the remaining delay rather than extending the wake.
+  // The policy borrows part of the conversion window (the INA219 wake + read
+  // below). Because the wait below is measured from convStart, this SHRINKS the
+  // remaining delay rather than extending the wake.
   policy->onWake();
   if (powerVariant == VARIANT_SOLAR) {
     // Bus voltage is measured load-side, so a full pack in bright sun (charger
@@ -384,12 +384,30 @@ void readAndBufferSensors() {
     uint16_t busMv = (uint16_t)(adc * (3.3f / 1024.0f) * PANEL_DIV_RATIO * 1000.0f);
     solarPolicy.ingestSample(busMv, 0.0f, sleepIntervalSeconds);
 #else
+    // Wake the INA219 from the POWERDOWN commanded below. powerSave(true) stops
+    // conversions entirely, and without this wake the part NEVER converts again:
+    // every later read returns the registers' last pre-powerdown contents.
+    // Observed on gisebo-05 all night 2026-07-27/28 -- panel V/I frozen at
+    // 3.852 V / 15.9 mA from dusk through sunrise, the sun EWMA integrating
+    // "sun present" in the dark, and 192 mAh of harvest that never flowed. See
+    // docs/dev-notes/20260728-1230_ina219-powersave-freeze.md.
+    ina219.powerSave(false);
+    // First conversion after wake: 12-bit shunt+bus continuous is ~1.1 ms
+    // (532 us each); 5 ms is comfortable margin. The wait sits inside the
+    // DS18B20 conversion window measured from convStart, so it costs nothing.
+    {
+      uint32_t inaWake = millis();
+      while (millis() - inaWake < 5) { os_runloop_once(); }
+    }
     uint16_t busMv = (uint16_t)(ina219.getBusVoltage_V() * 1000.0f);
     float currentMa = ina219.getCurrent_mA();
     if (currentMa < 0) currentMa = 0;   // reverse leakage blocked by the Schottky
-    // A hung/absent INA219 reads ~0 (or nonsense); a real li-ion+panel bus sits
-    // well inside this band. Surfaced as DIAG_FAULT_INA219_READ_FAIL.
-    g_ina219ReadOk = (busMv >= 500 && busMv < 20000);
+    // Validity = the I2C transaction, not the value. A dark panel legitimately
+    // reads ~0 mV all night (that is the sun signal working), so a voltage
+    // floor here would raise INA219_READ_FAIL every night; an absent or hung
+    // part NAKs instead, which the library reports via success(). The top
+    // clamp still catches garbage from a wedged bus that ACKs.
+    g_ina219ReadOk = ina219.success() && (busMv < 20000);
     solarPolicy.ingestSample(busMv, currentMa, sleepIntervalSeconds);
     ina219.powerSave(true);   // ~15 uA between reads (S04-03)
 #endif
