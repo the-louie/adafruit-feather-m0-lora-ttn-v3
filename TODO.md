@@ -948,7 +948,7 @@ guards a low-probability collision, and every added condition is another way to
 worse error (silent 7-day interval) versus a spurious solar detection (loud in
 the backend). Decide explicitly; dropping this item is a legitimate outcome.
 
-### Not doing (recorded so it is not re-litigated)
+### Not doing (recorded so it is not re-litigated) — item 20
 
 **Shunt/bus saturation detection.** PG=/1 gives ±40 mV → ±400 mA across the
 0.1 Ω shunt, and BRNG=0 gives 16 V; beyond either, the registers simply clip
@@ -958,3 +958,71 @@ fitted — the current reading would peg at 400 mA and the harvest accumulator
 would integrate a plausible wrong number. Detection would be
 `shunt register == 0x0FA0`. See `docs/ina219-register-reference.md` §4;
 revisit only if the panel or shunt changes.
+
+---
+
+## 21. Only one out-of-band frame gets through per cycle
+
+**Status:** Observed over the air 2026-07-28, twice, on the post-fix firmware.
+**Complexity:** Low–Medium
+**Estimated time:** 3–4 h
+**Sprint:** 07
+
+### Problem
+
+Observed on gisebo-05 immediately after the 2026-07-28 flash:
+
+| cycle | data (21) | fault (2) | verbose (3) |
+|---|---|---|---|
+| boot 14:06:55 | **sent** | deferred | deferred |
+| 15:07:00 | n/a | **sent** | deferred |
+
+`loop()` sends data → fault → verbose, each via a separate blocking call. Every
+uplink draws a TTN downlink, after which LMIC owes the network a MAC answer and
+sets `OP_POLL` — so `LMICJ_isTxPathBusy()` (`OP_POLL | OP_TXDATA | OP_JOINING |
+OP_TXRXPEND`) is true and `LMIC_setTxData2()` refuses the *next* frame in the
+same cycle. The MAC answers are visible in TTN as the payload-less uplinks that
+follow each real frame (`14:07:01/:07/:12/:18`).
+
+The `OP_TXRXPEND` guard at the top of `txFrameAndWait()` does not catch this —
+`OP_POLL` is a different bit — so the frame reaches `LMIC_setTxData2()` and is
+refused there. The refusal is **caught and reported** (that is the `007a46b`/
+`58e4f74` hardening working as designed: the 15:07 fault frame carries
+`tx_timeout`, and no 120 s was wasted). But the frame itself is still lost to
+that cycle.
+
+**Why it matters more in PROD than it looks here.** In DEV the deferred frame
+retries an hour later. In PROD the retry waits a full sleep interval — up to
+**7 days** at index 10 — so the once-per-boot diagnostic frame, the one that
+says "I am alive, here is my reset cause and state", could be delayed by days
+on exactly the unit that most needs to report. The boot diagnostic took 60 min
+to arrive here; that is the same defect with a friendly interval.
+
+Note this is a *delay*, not a loss: `bootDiagSent` and `verboseSentOnce` are
+only set on success, so nothing is dropped, and in steady state (one frame due
+per cycle) everything gets through — which is why it did not show up before.
+
+### Solution
+
+Give the out-of-band path a bounded wait for the MAC exchange to drain instead
+of giving up instantly:
+
+1. Before queueing, spin `os_runloop_once()` until `LMIC_queryTxReady()` is true
+   or a budget expires (~20–30 s: the MAC ping-pong runs at the ~6 s duty-cycle
+   pacing, so 3–5 exchanges fit). `millis()`-based, no `delay()`, exactly like
+   the existing waits.
+2. Only then call `LMIC_setTxData2()`; keep the return-value check and the
+   120 s completion timeout unchanged.
+3. Prefer `LMIC_queryTxReady()` over hand-testing opmode bits — it is the
+   library's own `! LMICJ_isTxPathBusy()` and will not drift from the internal
+   definition the way the `OP_TXRXPEND`-only guard did.
+4. Consider whether the budget should be shorter in PROD (awake time is battery)
+   — but note the alternative is a multi-day delay, so a 30 s spend is cheap.
+
+### Verification
+
+Over the air: a boot must land **all three** frames (data, fault, verbose)
+within one cycle rather than one per cycle. Host-test the "wait for ready, then
+give up" decision as a pure function of (ready?, elapsed, budget). The failure
+this fixes is invisible in a healthy steady state, so verify at a **boot**, not
+in the middle of a run.
