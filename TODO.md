@@ -1179,7 +1179,7 @@ than persisting for 24 h.
 
 ## 24. `clarity` is gated on the device clock, which it does not use
 
-**Status:** **(a) DONE 2026-07-28** — `docs/dev-notes/20260728-1910_clarity-off-the-device-clock.md`; decoder fixed, test inverted, live fixture updated, formatter re-uploaded to TTN and verified byte-identical. **(b) OPEN** — blocked on an EWMA-age field in the payload.
+**Status:** **(a) DONE 2026-07-28** — `docs/dev-notes/20260728-1910_clarity-off-the-device-clock.md`; decoder fixed, test inverted, live fixture updated, formatter re-uploaded to TTN and verified byte-identical. **(b) OPEN** — blocked on **item 25**, which carries the uptime/EWMA-age field.
 **Complexity:** Low (part a) / Medium (part b)
 **Estimated time:** 1–2 h (a), folds into the verbose-frame work (b)
 **Sprint:** 07
@@ -1254,3 +1254,74 @@ separates "short winter day" from "snow, leaves or shade on the panel" — a fau
 a bare EWMA hides completely, and one that a field unit cannot otherwise report.
 Leaving it `null` for a device's whole early life disables exactly the diagnostic
 that early life most needs.
+
+---
+
+## 25. Verbose frame v2: guaranteed hourly, uptime/cycle count, DEV panel sub-sampling
+
+**Status:** Not started. Requested by the operator 2026-07-28 ("status uplinks
+every hour in DEV to verify the algorithms before deploy"); scoped in that
+discussion. **Unblocks item 24b**, which needs the uptime field.
+**Complexity:** Medium
+**Estimated time:** 5–7 h
+**Sprint:** 07
+
+### Problem
+
+Three gaps in the existing FPort 3 verbose frame, all found the hard way this
+week:
+
+1. **Cadence is `max(1 h, wake interval)`, not hourly.** The frame is emitted
+   from the wake cycle, so at winter/degraded intervals (6 h, 12 h, …) status
+   stretches exactly when bench observation wants it most. DEV never
+   deep-sleeps, so a truly hourly cadence is free.
+2. **The device never reports its own sense of time.** Cadence can only be
+   inferred from TTN receive timestamps, which is precisely the ambiguity that
+   made the overnight TX-stall analysis hard ("sleeping too long, or
+   transmitting too little?" took gap arithmetic against the harvest counter to
+   answer; uptime + a cycle count would have answered it in one glance). It is
+   also the missing input for **24b**: clarity is meaningless until the EWMA has
+   converged, and nothing on the wire says how long it has been accumulating.
+3. **Harvest rests on one ~532 µs sample per hour.** The 15:07→16:07 jump
+   (2 → 129 mAh, implying an uncorroborated ~105 mA sample) showed how fragile
+   that extrapolation is. In DEV the device is awake the whole hour; sampling
+   the panel every 1–2 min costs nothing and yields min/mean/max — a real
+   charging profile, and a direct measurement of the extrapolation error that
+   item 15's harvest error bar needs.
+
+### Solution sketch (schema v2, DEV-only fields appended)
+
+- **Guaranteed hourly:** also call `evaluateAndMaybeSendVerbose()` from inside
+  the DEV sleep loop (it already runs `os_runloop_once()` + the clock feed;
+  the `verboseShouldSend()` millis gate already exists). Linear flow, no OS
+  jobs; must go through `waitForTxReady()` like every other frame. PROD path
+  untouched — the whole feature stays behind `runMode == 1`.
+- **New fields (bump `DIAG_VERBOSE_SCHEMA` to 2, extend `DIAG_VERBOSE_LEN`):**
+  uptime (u32 s), wake-cycle count (u16), `ramCount`/`uplinkCounter` (packed
+  byte), and panel-current min/mean/max at 0.5 mA/LSB (3 bytes) + bus-voltage
+  min/max at 30 mV/LSB (2 bytes) accumulated by the sleep-loop sampler and
+  reset after each verbose TX. ~34 bytes total — inside the 51-byte SF12 limit
+  with margin.
+- **EWMA age for 24b:** report uptime; after a warm reset the EWMA is restored
+  and thus OLDER than uptime, so the decoder's convergence gate under-estimates
+  age and suppresses clarity a little too long — conservative, acceptable, and
+  avoids a persist-layout bump. (Exact alternative: a persisted
+  `ewmaAgeSeconds`; do not build it unless the conservative gate annoys.)
+- **Sub-sampling and powerSave:** each sleep-loop sample must wake the INA219
+  and re-sleep it (or, at 1–2 min spacing in DEV, just leave it awake between
+  samples — 0.7 mA is irrelevant on the bench; decide and document). Gate on
+  CNVR once item 18 lands.
+- Land `diagnostics.h` + `.ino` + `decoders/gisebo-05-v7.js` together, re-upload
+  the formatter, keep schema-1 decoding for old captures (the decoder keys on
+  byte 0).
+- Then implement **24b** in the decoder: suppress or flag clarity while
+  uptime < ~1 time constant (24 h) since cold boot; host-test both sides of the
+  gate.
+
+### Verification
+
+Host tests for the new encode fields and the min/mean/max accumulator (pure
+logic → header). Over the air: verbose frames at 60-minute spacing while the
+wake interval is 6 h (force with a bench battery/temperature); `cycle_count`
+advancing by 1 per wake; panel min < mean < max on a partly cloudy day;
+`clarity` null/flagged for the first 24 h after a cold boot and computed after.
