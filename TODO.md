@@ -1026,3 +1026,73 @@ within one cycle rather than one per cycle. Host-test the "wait for ready, then
 give up" decision as a pure function of (ready?, elapsed, budget). The failure
 this fixes is invisible in a healthy steady state, so verify at a **boot**, not
 in the middle of a run.
+
+---
+
+## 22. The first sample after every boot fabricates a full interval of dt
+
+**Status:** Not started. Found reviewing the solar signal 2026-07-28; a small
+instance is visible in the live data.
+**Complexity:** Low
+**Estimated time:** 1–2 h
+**Sprint:** 07
+
+### Problem
+
+`readAndBufferSensors()` feeds the solar policy the interval it *just slept*:
+
+```c
+solarPolicy.ingestSample(busMv, currentMa, sleepIntervalSeconds);
+```
+
+That is correct for every cycle except the first. `setup()` sets
+`sleepIntervalSeconds` from the restored (or default) interval index **before
+any sleep has happened**, so the first sample of every boot credits a full
+interval of elapsed time that did not elapse.
+
+- **Sun EWMA: negligible.** α = 1 − exp(−3600/86400) = 0.041 at a 1 h interval,
+  applied once.
+- **Harvest accumulator: material.** A warm reset at index 5 in good sun credits
+  `34.5 mA × 1 h ≈ 34 mAh` of charge that never flowed — **more than a typical
+  full day's harvest** (7–28 mAh/day at energy balance), injected in one step
+  into the metric whose entire purpose is the daily energy-balance trend.
+
+A small instance is already on the wire: the 2026-07-28 14:06:55 cold boot
+reported `harvest_mah: 2`, which is exactly `34.5 mA × 300 s` (index 2, the
+cold-boot default) — 2.875 mAh, floored to 2 by the accumulator. Harmless at
+5 min; the same defect at a restored 60 min index is 12× larger, and `.noinit`
+restores `harvest_.totalMah` across a warm reset, so the phantom lands on top of
+a real running total rather than on zero.
+
+Applies to **both** reset paths, and PROD is the worse case: the join-failure
+`NVIC_SystemReset()` re-enters `setup()` with a restored index.
+
+### Solution
+
+Pass `dt = 0` for the first `ingestSample()` after boot — a static
+`firstSampleAfterBoot` flag in the `.ino`, cleared after the first call. Both
+primitives already behave correctly:
+
+- `sunEwmaUpdate()` has an explicit `if (dtSeconds == 0) return ewma;` guard,
+  already covered by `test_solar_signal.cpp` ("dt=0 leaves the EWMA unchanged").
+- `harvestAdd()` computes `currentMa * (0 / 3600.0f)` = 0, so nothing accrues.
+
+So this is a guard in the glue, not a change to any host-tested primitive.
+
+**Why zero rather than the true elapsed time:** the device genuinely *was* off
+for some interval (the 15-min PROD join-failure sleep, a flash, a power cut) and
+the panel may well have been charging through it — so zero under-counts. But the
+duration is not knowable from `millis()`, which does not advance through deep
+sleep or across a reset. Under-counting a quantity we cannot measure beats
+fabricating one, and a fabricated value is indistinguishable from real harvest
+downstream. If precision ever matters, the RTC could supply it
+(`persist.rtcEpoch` → `rtc.getEpoch()` when `clockValid`) — deliberately not
+done here, as it adds a clock dependency to a path that must work without one.
+
+### Verification
+
+Host test: `ingestSample(busMv, currentMa, 0)` leaves both `ewma_` and
+`harvest_.totalMah` unchanged (the EWMA half already exists; add the harvest
+half and the combined call). Over the air: a boot's first solar frame must
+report `harvest_mah` **equal to the pre-reset value** (warm reset) or **0**
+(cold boot), rather than the pre-reset value plus an interval's worth.
