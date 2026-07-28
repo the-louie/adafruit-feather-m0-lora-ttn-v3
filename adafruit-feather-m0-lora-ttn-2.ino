@@ -578,7 +578,21 @@ void transmitBatchAndWait() {
     solarPolicy.bootCounter_ = persist.bootCounter;
     uint8_t flags = 0;
     if (persist.clockValid) flags |= STATUS_CLOCK_VALID;
-    if (persist.bootCounter <= 1) flags |= STATUS_COLD_BOOT;   // first boots
+    // Cold/soft boot from g_coldBoot, NOT from `bootCounter <= 1`: the counter
+    // is 3-bit and wraps 7 -> 0 -> 1, so the old proxy re-reported "cold boot"
+    // on the 8th and 9th boots of a session chain. g_coldBoot is the exact fact
+    // (persist was NOT restored). The two flags are complementary on purpose:
+    // every boot is exactly one of cold (persist lost) or soft (persist
+    // survived a reset). 2026-07-28 review, wrapping-counter class.
+    if (g_coldBoot)  flags |= STATUS_COLD_BOOT;
+    else             flags |= STATUS_SOFT_RESET;
+    // The pending-uplink-failure latch, so PROD data frames carry the fault the
+    // out-of-band diagnostic frame may not get to send for days. Before this,
+    // STATUS_TX_TIMEOUT (and SOFT_RESET) had NO writer anywhere: the decoder
+    // dutifully reported tx_timeout:false on every data frame through the whole
+    // 2026-07-27/28 overnight failure storm. A defined wire flag nobody sets is
+    // worse than none -- it actively asserts health.
+    if (g_txFaultPending) flags |= STATUS_TX_TIMEOUT;
     solarPolicy.statusFlags_ = flags;
   }
   len += policy->appendPayload(payload + len);

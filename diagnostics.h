@@ -206,7 +206,12 @@ struct VerboseSnapshot {
   uint8_t  resetCause;
   uint8_t  bootCounter;
   uint8_t  intervalIndex;         // 0..10
-  uint8_t  seasonState;           // 0 Summer, 1 Fall/Spring, 2 Winter
+  uint8_t  seasonState;           // season.h SeasonState: 0 WINTER, 1 MID, 2 SUMMER.
+                                  // (This comment previously said the opposite --
+                                  // the exact inversion that shipped as the
+                                  // decoder bug fixed in 8dc181f. season.h is
+                                  // the authority; never restate the order from
+                                  // memory.)
   uint8_t  voltageBand;           // 0..3
   uint16_t batteryMv;
   uint16_t panelBusMv;
