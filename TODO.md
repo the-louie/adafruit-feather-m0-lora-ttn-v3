@@ -869,7 +869,7 @@ invisible for a full night, so the exit criterion is the *fault*, not the data.
 
 ## 19. `ina219.success()` is only checked for the last read
 
-**Status:** Not started. A real hole in the fix shipped 2026-07-28 (`007a46b`).
+**Status:** **IMPLEMENTED 2026-07-28** — `docs/dev-notes/20260728-1900_tx-fault-latch-and-ina219-success.md`. Pending flash-verify (no-op on a healthy unit by design).
 **Complexity:** Low
 **Estimated time:** ~1 h
 **Sprint:** 07
@@ -1101,8 +1101,7 @@ report `harvest_mah` **equal to the pre-reset value** (warm reset) or **0**
 
 ## 23. The TX-fault latch and the diagnostic rate limiter deadlock
 
-**Status:** Not started. Observed over the air 2026-07-28 on the firmware shipped
-that morning; the latch is from `58e4f74`.
+**Status:** **IMPLEMENTED 2026-07-28** — `docs/dev-notes/20260728-1900_tx-fault-latch-and-ina219-success.md`. Pending flash-verify: after a refused frame, `tx_timeout` must ride exactly ONE verbose frame, not 24 h of them.
 **Complexity:** Low
 **Estimated time:** 1–2 h
 **Sprint:** 07
@@ -1181,8 +1180,7 @@ than persisting for 24 h.
 
 ## 24. `clarity` is gated on the device clock, which it does not use
 
-**Status:** Not started. Found 2026-07-28 while verifying how the solar day is
-derived. **Decoder-only — no firmware change, no re-flash.**
+**Status:** **(a) DONE 2026-07-28** — `docs/dev-notes/20260728-1910_clarity-off-the-device-clock.md`; decoder fixed, test inverted, live fixture updated, formatter re-uploaded to TTN and verified byte-identical. **(b) OPEN** — blocked on an EWMA-age field in the payload.
 **Complexity:** Low (part a) / Medium (part b)
 **Estimated time:** 1–2 h (a), folds into the verbose-frame work (b)
 **Sprint:** 07
