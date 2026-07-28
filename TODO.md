@@ -1096,3 +1096,83 @@ Host test: `ingestSample(busMv, currentMa, 0)` leaves both `ewma_` and
 half and the combined call). Over the air: a boot's first solar frame must
 report `harvest_mah` **equal to the pre-reset value** (warm reset) or **0**
 (cold boot), rather than the pre-reset value plus an interval's worth.
+
+---
+
+## 23. The TX-fault latch and the diagnostic rate limiter deadlock
+
+**Status:** Not started. Observed over the air 2026-07-28 on the firmware shipped
+that morning; the latch is from `58e4f74`.
+**Complexity:** Low
+**Estimated time:** 1–2 h
+**Sprint:** 07
+
+### Problem
+
+`g_txFaultPending` means "an uplink failed and no diagnostic frame has reported
+it yet", and it is cleared in exactly one place — after `sendDiagFrame()`
+succeeds. But `diagShouldSend()` will not send a frame for a fault bit it has
+already reported (`unreported = faults & ~lastSentFaults`), and the periodic
+re-alert is rate-limited to `DIAG_MIN_RESEND_SECONDS` (24 h). So once the bit
+has been reported once, the only thing that can clear the latch is suppressed
+by the very fact that it was reported.
+
+Observed sequence:
+
+| time | event |
+|---|---|
+| 14:07 | boot-cycle fault + verbose frames refused (`OP_POLL`, item 21) → latch set |
+| 15:07 | diagnostic frame sent, carries `tx_timeout`, latch cleared… then the verbose frame is refused → **latch set again** |
+| 16:07, 17:07, 18:07 | verbose frames succeed, each reporting `tx_timeout` / `healthy: false` |
+
+Nothing had failed since 15:07 — the verbose frames were going out cleanly on an
+exact hourly cadence — yet the device reported itself unhealthy for hours, and
+would have gone on doing so until the 24 h re-alert at ~15:07 the next day.
+
+Two costs:
+
+1. **A stale bit reads as a live fault.** `healthy: false` on a healthy device is
+   noise on the bench and a false alarm in the field.
+2. **Recurrence is invisible.** A single old failure and a failure every hour
+   produce identical telemetry, because the bit is latched and the re-report is
+   suppressed. That is the opposite of what the latch was added for.
+
+### Solution
+
+The verbose frame already carries the full fault bitmap (`gatherVerbose()` calls
+`diagComputeFaults()`), so when it transmits, the fault **has** been reported
+over the air. Clear the latch there too:
+
+```c
+if (txFrameAndWait(VERBOSE_FPORT_DEV, payload, DIAG_VERBOSE_LEN)) {
+  lastVerboseMillis = millis();
+  verboseSentOnce = true;
+  if (v.faults & DIAG_FAULT_TX_TIMEOUT) g_txFaultPending = false;  // reported on the wire
+}
+```
+
+Ordering is already safe: `gatherVerbose()` snapshots the faults *before* the
+TX, so a frame that succeeds provably carried the bit, and a frame that fails
+sets the latch again through `txFrameAndWait()`.
+
+DEV-only in effect — the verbose frame does not exist in PROD, so PROD keeps
+today's behaviour (cleared only by a diagnostic frame). That is the right
+asymmetry: DEV gets per-occurrence resolution for bench work, PROD keeps the
+once-per-day spam limit that protects the duty cycle and the battery.
+
+**Considered and not chosen:** widening `DIAG_FAULT_TX_TIMEOUT` into a small
+counter (failures since last report). It would distinguish recurrence in PROD
+too, but costs payload bits and a schema bump on both diagnostic frames for a
+fault that should be rare. Revisit only if PROD units start reporting it.
+
+**Not a bug, deliberately:** `diagMarkSent()` latching the bit into
+`persist.diagLastSentFaults` so a persistent fault re-alerts at most daily is
+the intended spam-proofing (item's origin: `20260726-1905_diagnostic-error-uplink.md`).
+This item does not change that.
+
+### Verification
+
+Host test: a verbose send with `tx_timeout` set clears the pending flag; a failed
+verbose send leaves it set. Over the air: after a refused frame, `tx_timeout`
+must appear on exactly **one** verbose frame and be absent from the next, rather
+than persisting for 24 h.
