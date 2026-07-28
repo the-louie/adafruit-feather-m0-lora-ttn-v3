@@ -798,3 +798,163 @@ Recoverable but real: season re-enters at Summer (~2 uplinks to settle), interva
 resets to 5-min initial, the **harvest accumulator resets to 0** (visible backend
 discontinuity), clock re-requested, uplink counter resets. The harvest
 discontinuity and the clock-preservation dependency are the ones to confirm.
+
+---
+
+## 18. Use the INA219 status flags: gate the read on CNVR, report OVF
+
+**Status:** Not started. Analysis complete — `docs/ina219-register-reference.md` §3, §7.1, §7.3.
+**Complexity:** Medium
+**Estimated time:** 4–6 h
+**Sprint:** 07
+
+### Problem
+
+The bus-voltage register (`02h`) carries the only two status bits the INA219
+has, and `Adafruit_INA219::getBusVoltage_raw()` discards both: it returns
+`(value >> 3) * 4`, throwing away bits 2, 1 and 0.
+
+- **CNVR (bit 1, conversion ready)** would have detected the 2026-07-27/28
+  frozen-reading defect *directly*. The fix shipped in `007a46b` waits a fixed
+  5 ms after `powerSave(false)` and then trusts whatever it reads — it cannot
+  distinguish "converted" from "returned the same stale register contents".
+- **OVF (bit 0, math overflow)** is set when the Current or Power calculation
+  is out of range: *"indicates that current and power data may be meaningless"*
+  (SBOS448G §8.6.3.2). We integrate current into the harvest accumulator with
+  no such check.
+
+The clear conditions make a CNVR poll unambiguous for our exact access pattern:
+`powerSave(false)` writes MODE=`111` → clears CNVR; `powerSave(true)` writes
+MODE=`000` → the datasheet **explicitly excepts** power-down from clearing it;
+only a *Power*-register read clears it otherwise, and we never read `03h`.
+
+A second reason this matters: the 5 ms wait is correct **only** for the current
+12-bit single-sample setting (532 µs, 586 µs max, per channel). Switching
+`BADC`/`SADC` to 128-sample averaging makes the requirement **68.10 ms**, and
+5 ms would silently return stale data — the same freeze by another route. A
+CNVR poll is immune to that change; a fixed delay is not.
+
+### Solution
+
+1. Add a raw 2-byte read of register `02h` (the Adafruit accessor cannot return
+   the flags). `variant_probe.h` already does raw `Wire` I²C, so this matches
+   the existing style — a small helper in the `.ino` beside the probe.
+2. Replace the fixed 5 ms wait with: `powerSave(false)` → poll `02h` until
+   CNVR=1 → read. Timeout **10 ms** (8.5× the 1.172 ms worst case for
+   shunt+bus), servicing `os_runloop_once()` while polling as the current wait
+   does. The poll reads `02h`, which does **not** self-clear CNVR.
+3. On timeout, raise a fault. Decide: reuse `DIAG_FAULT_INA219_READ_FAIL`
+   (`0x0008`, meaning already "live read bad") or add a distinct bit for
+   "present but not converting". Reuse is simpler and needs no decoder change;
+   a distinct bit is more diagnostic. **If a new bit is added it must land in
+   `diagnostics.h`, the `.ino`, and `decoders/gisebo-05-v7.js` together**, and
+   the formatter must be re-uploaded to TTN.
+4. Surface OVF as a fault bit. In our configuration OVF should be unreachable
+   (shunt clips at ±400 mA before Current can overflow; Power full scale is
+   65.5 W against a ≤6.4 W ceiling), so it firing means something structural —
+   most plausibly a corrupted Calibration register, which is a live risk because
+   `getCurrent_raw()` rewrites `05h` on every single read.
+5. Host-test the gate logic in `diagnostics.h`/a new header (pure function of
+   "CNVR seen? elapsed?"), keeping the I²C in the `.ino` as the probe does.
+
+### Verification
+
+Host tests for the decision logic; compile; then over the air — a DEV unit must
+keep reporting live panel V/I with no new faults, and pulling the INA219's SDA
+(or commanding power-down without the wake) must raise the fault rather than
+report frozen-but-plausible numbers. Note the failure this replaces was
+invisible for a full night, so the exit criterion is the *fault*, not the data.
+
+---
+
+## 19. `ina219.success()` is only checked for the last read
+
+**Status:** Not started. A real hole in the fix shipped 2026-07-28 (`007a46b`).
+**Complexity:** Low
+**Estimated time:** ~1 h
+**Sprint:** 07
+
+### Problem
+
+`Adafruit_INA219::success()` returns `_success`, which each accessor
+**overwrites** with the result of its own register read. `readAndBufferSensors()`
+currently does:
+
+```c
+uint16_t busMv = (uint16_t)(ina219.getBusVoltage_V() * 1000.0f);  // sets _success (bus read)
+float currentMa = ina219.getCurrent_mA();                          // OVERWRITES it (current read)
+g_ina219ReadOk = ina219.success() && (busMv < 20000);
+```
+
+So a **failed bus-voltage read followed by a successful current read reports
+healthy**, and `busMv` carries whatever the failed read left behind. The check
+was introduced deliberately (replacing a `>= 500 mV` floor that would have
+false-faulted every night on a dark panel) — the reasoning was right, the
+sampling point was wrong.
+
+### Solution / verification
+
+Sample `success()` immediately after **each** accessor and AND the results:
+
+```c
+uint16_t busMv = (uint16_t)(ina219.getBusVoltage_V() * 1000.0f);
+bool busOk = ina219.success();
+float currentMa = ina219.getCurrent_mA();
+bool curOk = ina219.success();
+g_ina219ReadOk = busOk && curOk && (busMv < 20000);
+```
+
+Folds naturally into item 18 (same function, same commit batch) but is worth
+doing independently since it is a two-line correctness fix on shipped code.
+Verify by compile plus the existing host suite; over the air it is a no-op on a
+healthy unit, which is the point.
+
+---
+
+## 20. Probe hardening: check the calibration register after the soft reset
+
+**Status:** Not started. Optional defence-in-depth — `docs/ina219-register-reference.md` §7.5.
+**Complexity:** Low
+**Estimated time:** 2–3 h
+**Sprint:** 07 (or drop)
+
+### Problem
+
+`probeAttemptFoundIna219()` identifies the part by one 16-bit value: config ==
+`0x399F` after the soft reset. That is as much as the INA219 offers — **it has
+no manufacturer-ID or die-ID register**, the map ends at `05h` (unlike the
+INA226's die ID `0x2260`). So the identification is inherently a 16-bit match,
+and any other device at `0x40` that happens to read `0x399F` at register `00h`
+would be taken for an INA219.
+
+Separately: the probe ignores the return value of the RST write
+(`Wire.endTransmission()`). A NAK is correctly harmless when nothing is there,
+but a *partial* failure on a marginal bus leaves the probe reading a stale
+config — and since `007a46b` that stale value is **`0x0198`**, not `0x019F`,
+because every cycle now ends in `powerSave(true)`.
+
+### Solution / verification
+
+The RST bit *"resets all registers to default values"*, so after a successful
+soft reset the **Calibration register `05h` must read `0x0000`**. Reading it
+alongside the config turns a 16-bit identity match into a 32-bit one for two
+extra I²C bytes. Extend `ProbeResult` with `calValue`/`calRead` and require both
+in `probeAttemptFoundIna219()`; add host tests to `test_variant_probe.cpp`
+covering "config right, cal wrong" (reject) and the existing cases (unchanged).
+
+**Judgement call, not obviously worth it:** the probe currently works, this
+guards a low-probability collision, and every added condition is another way to
+*fail* to detect a present sensor — which item 10 correctly identifies as the
+worse error (silent 7-day interval) versus a spurious solar detection (loud in
+the backend). Decide explicitly; dropping this item is a legitimate outcome.
+
+### Not doing (recorded so it is not re-litigated)
+
+**Shunt/bus saturation detection.** PG=/1 gives ±40 mV → ±400 mA across the
+0.1 Ω shunt, and BRNG=0 gives 16 V; beyond either, the registers simply clip
+with **no flag at all**. The panel draws ~30 mA, so there is ~13× headroom and
+this is theoretical today. It stops being theoretical the day a larger panel is
+fitted — the current reading would peg at 400 mA and the harvest accumulator
+would integrate a plausible wrong number. Detection would be
+`shunt register == 0x0FA0`. See `docs/ina219-register-reference.md` §4;
+revisit only if the panel or shunt changes.
