@@ -154,6 +154,12 @@ static Adafruit_INA219 ina219;   // only used on the solar variant
 // -- NOT wall-clock: millis() does not advance through deep sleep, and elapsed
 // seconds is all the EWMA needs. (A lastWakeMillis variable for this was
 // declared but never used; removed 2026-07-28.)
+//
+// True until the first sensor read of this boot has been taken. That first read
+// has NOT slept: setup() fills sleepIntervalSeconds from the restored interval
+// index before any sleep happens, so passing it as dt would credit elapsed time
+// that never elapsed. See readAndBufferSensors().
+static bool firstSampleAfterBoot = true;
 
 // State that survives NVIC_SystemReset(). NOT initialised by the C runtime --
 // that is the whole point. Validity is checked in setup() (persist.h).
@@ -383,11 +389,30 @@ void readAndBufferSensors() {
     // on voltage, not current. dt is the interval we just slept: millis() does
     // not advance through deep sleep, and it is the elapsed time that the EWMA
     // needs, not a wall-clock instant.
+    //
+    // ...except on the FIRST read of a boot, which slept for nothing at all:
+    // setup() fills sleepIntervalSeconds from the restored interval index before
+    // any sleep happens. Passing it would fabricate an interval of elapsed time.
+    // Negligible for the EWMA (alpha 0.041 once), but the harvest accumulator
+    // integrates current*dt directly, so a warm reset at index 5 in sun would
+    // credit ~34 mAh that never flowed -- more than a typical DAY's harvest
+    // (7-28 mAh/day at balance) -- on top of the .noinit-restored total. PROD is
+    // the worse case: the join-failure NVIC_SystemReset() re-enters setup() with
+    // a RESTORED index, not the 5-min cold-boot default.
+    //
+    // Zero deliberately UNDER-counts (the panel may really have been charging
+    // while we were off), because the off-duration is not knowable from millis(),
+    // which does not advance through deep sleep or across a reset -- and a
+    // fabricated value is indistinguishable from real harvest downstream. The
+    // RTC could supply it; not taken, as that would add a clock dependency to a
+    // path that must work before the clock is valid.
+    // See docs/dev-notes/20260728-2000_first-sample-dt-and-tx-ready-wait.md.
+    const uint32_t ingestDt = firstSampleAfterBoot ? 0 : sleepIntervalSeconds;
 #ifdef SOLAR_NO_INA219
     // Bus voltage from the divider; no shunt, so current (harvest) is 0.
     uint16_t adc = analogRead(PANEL_ADC_PIN);
     uint16_t busMv = (uint16_t)(adc * (3.3f / 1024.0f) * PANEL_DIV_RATIO * 1000.0f);
-    solarPolicy.ingestSample(busMv, 0.0f, sleepIntervalSeconds);
+    solarPolicy.ingestSample(busMv, 0.0f, ingestDt);
 #else
     // Wake the INA219 from the POWERDOWN commanded below. powerSave(true) stops
     // conversions entirely, and without this wake the part NEVER converts again:
@@ -420,7 +445,7 @@ void readAndBufferSensors() {
     // part NAKs instead, which the library reports via success(). The top
     // clamp still catches garbage from a wedged bus that ACKs.
     g_ina219ReadOk = busOk && currentOk && (busMv < 20000);
-    solarPolicy.ingestSample(busMv, currentMa, sleepIntervalSeconds);
+    solarPolicy.ingestSample(busMv, currentMa, ingestDt);
     ina219.powerSave(true);   // ~15 uA between reads (S04-03)
 #endif
   }
@@ -469,6 +494,11 @@ void readAndBufferSensors() {
 
   uplinkScheduleOnSample(&uplinkSched);
 
+  // Cleared here rather than inside the solar branch so it means "the first
+  // sensor read of this boot", independent of variant -- a primary board must
+  // not leave it armed for a policy it never runs.
+  firstSampleAfterBoot = false;
+
   // Explicitly log the reading and buffer status
   logPrint(F("--> Measured surface temp: "));
   logPrint(tempC);
@@ -478,9 +508,53 @@ void readAndBufferSensors() {
   logPrintln(uplinkSched.batchTarget);
 }
 
+// How long to let LMIC finish whatever it owes the network before we give up on
+// queueing a frame this cycle. The MAC ping-pong runs at the ~6 s EU868 1%
+// pacing, so this covers about five exchanges -- the boot burst on gisebo-05
+// was four, spread over 17 s.
+#define TX_READY_WAIT_MS 30000UL
+
+// Spin the LMIC runloop until it will accept a frame, or the budget expires.
+//
+// Replaces an instant `if (LMIC.opmode & OP_TXRXPEND) return;` bail. That guard
+// tested ONE bit, but LMIC_setTxData2() refuses on OP_POLL | OP_TXDATA |
+// OP_JOINING | OP_TXRXPEND -- and OP_POLL (LMIC owes the network a MAC answer)
+// is set after every downlink. Since each of our uplinks draws a downlink, the
+// second and third frames of a cycle were refused as a matter of course: on
+// gisebo-05 2026-07-28 the boot cycle sent the data frame and deferred BOTH the
+// fault and verbose frames, and the next cycle sent the fault frame and deferred
+// verbose again. Only ever one frame per cycle got out.
+//
+// A delay rather than a loss -- bootDiagSent/verboseSentOnce are only set on
+// success -- but in PROD the retry waits a whole sleep interval, up to 7 days at
+// index 10, on the once-per-boot "I am alive, here is my reset cause" frame.
+// Waiting a few seconds for the MAC exchange to drain is far cheaper than that.
+//
+// Uses LMIC_queryTxReady() (the library's own !LMICJ_isTxPathBusy()) rather than
+// hand-testing opmode bits: picking bits by hand is exactly how the old guard
+// drifted out of step with the library. See
+// docs/dev-notes/20260728-2000_first-sample-dt-and-tx-ready-wait.md.
+static bool waitForTxReady(const __FlashStringHelper *tag) {
+  if (LMIC_queryTxReady()) return true;
+  uint32_t waitStart = millis();
+  while (!LMIC_queryTxReady() && (millis() - waitStart < TX_READY_WAIT_MS)) {
+    os_runloop_once();
+  }
+  if (!LMIC_queryTxReady()) {
+    logPrint(tag);
+    logPrintln(F(" TX path still busy after the wait, defer to next cycle"));
+    logTxSchedState(F("busy:"));
+    // Budgeted for five MAC exchanges, so exhausting it is not routine
+    // contention -- it means the stack is wedged. Worth a fault, unlike the
+    // ordinary "wait a moment" case which now resolves inside the budget.
+    g_txFaultPending = true;
+    return false;
+  }
+  return true;
+}
+
 void transmitBatchAndWait() {
-  if (LMIC.opmode & OP_TXRXPEND) {
-    logPrintln(F("OP_TXRXPEND, skip send this cycle"));
+  if (!waitForTxReady(F("data uplink:"))) {
     return;
   }
 
@@ -632,8 +706,7 @@ static void logTxSchedState(const __FlashStringHelper *tag) {
 // currentIntervalIndex or the uplink counter, so it cannot perturb the data
 // cadence. Returns true only if the TX actually completed.
 static bool txFrameAndWait(uint8_t fport, uint8_t *payload, uint8_t len) {
-  if (LMIC.opmode & OP_TXRXPEND) {
-    logPrintln(F("out-of-band frame: OP_TXRXPEND, defer to next cycle"));
+  if (!waitForTxReady(F("out-of-band frame:"))) {
     return false;
   }
   txComplete = false;

@@ -165,6 +165,43 @@ int main() {
     check(buf[1] == 255, "panel I clamps at 255, does not wrap");
   }
 
+  // -------------------------------------------------------------------------
+  // 10. dt == 0 changes nothing -- the contract the .ino relies on for the
+  //     FIRST sample after a boot, which has not slept at all.
+  //
+  //     setup() fills sleepIntervalSeconds from the restored interval index
+  //     before any sleep happens, so passing it would fabricate elapsed time.
+  //     Negligible for the EWMA, but harvest integrates current*dt directly: a
+  //     warm reset at index 5 in sun would credit ~34 mAh that never flowed,
+  //     more than a typical day's harvest, on top of the .noinit-restored
+  //     total. The .ino passes 0 instead; this pins the behaviour that makes
+  //     that safe. See TODO 22.
+  // -------------------------------------------------------------------------
+  {
+    SolarPolicy p; p.begin();
+    for (int i = 0; i < 20; i++) p.ingestSample(4700, 25.0f, 3600);  // build real state
+    const float    ewmaBefore    = p.ewma_;
+    const uint16_t harvestBefore = p.harvest_.totalMah;
+    const bool     bonusBefore   = p.bonusActive_;
+
+    p.ingestSample(4700, 25.0f, 0);   // a "sample" covering no elapsed time
+
+    check(p.ewma_ == ewmaBefore, "dt=0: EWMA unchanged");
+    check(p.harvest_.totalMah == harvestBefore, "dt=0: harvest total unchanged");
+    check(p.bonusActive_ == bonusBefore, "dt=0: latched bonus unchanged");
+
+    // ...and it must not quietly bank a sub-mAh remainder either, or repeated
+    // boots would still drift the accumulator upward one fraction at a time.
+    for (int i = 0; i < 50; i++) p.ingestSample(4700, 25.0f, 0);
+    check(p.harvest_.totalMah == harvestBefore, "dt=0 x50: harvest still unchanged");
+
+    // The live readings must still land, so the payload/verbose frame reports
+    // the panel state from a boot's first read even though it credits no time.
+    p.ingestSample(3300, 7.5f, 0);
+    check(p.lastBusMv_ == 3300, "dt=0: bus voltage still recorded");
+    check(p.lastCurrentMa_ == 7.5f, "dt=0: current still recorded");
+  }
+
   std::printf("\n%s\n\n", failures ? "FAILED" : "all passed");
   return failures ? 1 : 0;
 }
