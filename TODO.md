@@ -803,7 +803,7 @@ discontinuity and the clock-preservation dependency are the ones to confirm.
 
 ## 18. Use the INA219 status flags: gate the read on CNVR, report OVF
 
-**Status:** Not started. Analysis complete — `docs/ina219-register-reference.md` §3, §7.1, §7.3.
+**Status:** **IMPLEMENTED 2026-07-28** (`774021e`/`555406d`/`01363ab`) — `docs/dev-notes/20260728-2200_cnvr-gated-ina219-read.md`. Decoder half live (formatter re-uploaded, byte-identical); firmware pending flash. Resolved the open decision: CNVR timeout reuses `DIAG_FAULT_INA219_READ_FAIL`; OVF got the new bit `0x0080` (`ina219_ovf`). Also went beyond the spec: a failed read is no longer ingested at all. Flash-verify: healthy unit identical; SDA pulled or part held in power-down must raise `ina219_read_fail` within one cycle.
 **Complexity:** Medium
 **Estimated time:** 4–6 h
 **Sprint:** 07
