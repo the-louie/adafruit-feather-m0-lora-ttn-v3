@@ -55,6 +55,7 @@ const DIAG_FAULT_NAMES = [
   [0x0010, "persist_corrupt"],
   [0x0020, "tx_timeout"],
   [0x0040, "low_battery"],
+  [0x0080, "ina219_ovf"],
 ];
 
 // SAMD21 PM->RCAUSE bits (byte 2).

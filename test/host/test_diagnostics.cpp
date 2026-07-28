@@ -53,10 +53,19 @@ int main() {
     check(diagComputeFaults(&in) == DIAG_FAULT_DS18B20_READ_FAIL, "1 device, bad read -> read fail"); }
   { DiagInputs in = healthy(); in.ina219ReadOk = false;
     check(diagComputeFaults(&in) == DIAG_FAULT_INA219_READ_FAIL, "solar, INA219 bad read -> INA219 read fail"); }
+  { DiagInputs in = healthy(); in.ina219Ovf = true;
+    check(diagComputeFaults(&in) == DIAG_FAULT_INA219_OVF, "solar, OVF set -> math-overflow fault"); }
+  // OVF and read-fail are independent axes: a read can complete (ACK + CNVR)
+  // and still carry the overflow flag, or fail with no flag at all.
+  { DiagInputs in = healthy(); in.ina219ReadOk = false; in.ina219Ovf = true;
+    check(diagComputeFaults(&in) == (DIAG_FAULT_INA219_READ_FAIL | DIAG_FAULT_INA219_OVF),
+          "bad read + OVF -> both faults, neither masks the other"); }
 
   // A PRIMARY board with no INA219 is NOT a fault -- one binary, no per-unit config.
   { DiagInputs in = healthy(); in.isSolar = false; in.ina219Present = false; in.ina219ReadOk = false;
     check(diagComputeFaults(&in) == 0, "primary with no INA219 raises no fault (by design)"); }
+  { DiagInputs in = healthy(); in.isSolar = false; in.ina219Present = false; in.ina219Ovf = true;
+    check(diagComputeFaults(&in) == 0, "primary: OVF input cannot fault either (guarded on solar+present)"); }
 
   { DiagInputs in = healthy(); in.persistCorrupt = true;
     check(diagComputeFaults(&in) == DIAG_FAULT_PERSIST_CORRUPT, "persist corrupt -> fault"); }
