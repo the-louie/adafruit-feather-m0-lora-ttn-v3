@@ -271,9 +271,23 @@ function decodeUplink(input) {
 
     // Clarity: EWMA normalised by how much daylight there SHOULD be. ~1.0 = clear
     // skies; persistently low against a high expectation = overcast, or snow /
-    // leaves / shade on the panel -- a fault a bare EWMA hides. Only meaningful
-    // with a valid clock; null otherwise.
-    if (data.clock_valid && input.recvTime) {
+    // leaves / shade on the panel -- a fault a bare EWMA hides.
+    //
+    // Gated ONLY on recvTime, which the network server stamps on every uplink
+    // and The Things Stack passes to the formatter as a Date. It is NOT gated on
+    // data.clock_valid: neither operand touches the device's RTC.
+    // expectedDaylightFraction() runs on the server timestamp plus a latitude
+    // constant, and sun_ewma decays against sleepIntervalSeconds, not the clock.
+    // Gating on the device clock only blanked clarity for a unit's whole early
+    // life -- and forever on any unit whose DeviceTimeReq never landed -- which
+    // is exactly when the "is something covering the panel?" signal is wanted.
+    //
+    // STILL MISSING (TODO 24b): clarity is meaningless until the EWMA has
+    // converged. A device booted an hour ago reports a low ratio that reads as a
+    // shaded panel. Guarding that needs the EWMA's age, which the payload does
+    // not yet carry; expected_daylight_fraction is emitted alongside so the
+    // backend can judge in the meantime.
+    if (input.recvTime) {
       const frac = expectedDaylightFraction(new Date(input.recvTime), SITE_LATITUDE_DEG);
       data.expected_daylight_fraction = Number(frac.toFixed(3));
       data.clarity = frac > 0 ? Number((data.sun_ewma / frac).toFixed(3)) : null;

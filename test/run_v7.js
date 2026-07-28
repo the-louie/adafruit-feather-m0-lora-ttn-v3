@@ -80,13 +80,31 @@ console.log("\nv7 decoder -- the charge-terminated case (must not read as null/d
   check("charge-terminated: clarity reflects real sun, not 0", r.data.clarity > 0);
 }
 
-console.log("\nv7 decoder -- clock invalid -> clarity null");
+console.log("\nv7 decoder -- clarity does NOT depend on the device clock");
 {
+  // This assertion was deliberately INVERTED on 2026-07-28. It used to require
+  // clarity === null when the device clock was invalid. That was wrong: clarity
+  // is sun_ewma / expectedDaylightFraction(recvTime, latitude), and neither
+  // operand touches the device RTC -- recvTime is stamped by the network server
+  // and sun_ewma decays against sleepIntervalSeconds. The old gate blanked the
+  // panel-obscured signal for a unit's entire early life. See TODO 24 / dev-note
+  // 20260728-1900_clarity-off-the-device-clock.md.
   const b2 = ((900 & 0x0f) << 4) | 0;
   const bytes = [2, 900 >> 4, b2, 140, 140, 140, 140, 140, 140,
                  160, 50, 100, 0, 0, 0x00 /*no clock valid*/];
   const r = decode({ bytes, fPort: 11, recvTime: RECV });
-  check("clock invalid: clarity is null", r.data.clarity === null);
+  check("clock invalid: clarity is STILL computed", typeof r.data.clarity === "number");
+  check("clock invalid: clock_valid itself still decodes false", r.data.clock_valid === false);
+  check("clock invalid: expected_daylight_fraction present", typeof r.data.expected_daylight_fraction === "number");
+}
+
+console.log("\nv7 decoder -- no recvTime -> clarity null (the only real dependency)");
+{
+  const b2 = ((900 & 0x0f) << 4) | 0;
+  const bytes = [2, 900 >> 4, b2, 140, 140, 140, 140, 140, 140,
+                 160, 50, 100, 0, 0, 0x04 /*clock valid*/];
+  const r = decode({ bytes, fPort: 11 });   // no recvTime
+  check("no recvTime: clarity is null", r.data.clarity === null);
 }
 
 console.log("\nv7 decoder -- length/FPort mismatch errors");

@@ -1,5 +1,5 @@
 {
-  "_comment": "Generated from docs/dev-notes/real-world-data__20260716.json. expected[] is TTN's OWN decoded_payload -- production truth, not our assumption.",
+  "_comment": "Generated from docs/dev-notes/real-world-data__20260716.json. expected[] is TTN's OWN decoded_payload -- production truth, not our assumption. ONE DELIBERATE DIVERGENCE (2026-07-28): the gisebo-05 f_cnt=0 vector's clarity/expected_daylight_fraction were captured under the OLD formatter, which blanked clarity whenever the DEVICE clock was invalid. That gate was wrong -- clarity is computed from the SERVER's recvTime plus a latitude constant, neither of which touches the device RTC -- so it was removed and the formatter re-uploaded to TTN. Every other field in every vector is still TTN's verbatim output. Note what the new value shows: clarity 0.006 on a device that had just cold-booted, because the sun EWMA had not converged -- the unguarded case recorded as TODO 24b.",
   "vectors": [
     {
       "device": "gisebo-01",
@@ -203,7 +203,8 @@
         "clock_valid": false,
         "bonus_active": false,
         "tx_timeout": false,
-        "clarity": null
+        "clarity": 0.006,
+        "expected_daylight_fraction": 0.689
       },
       "fcnt": 0
     }
