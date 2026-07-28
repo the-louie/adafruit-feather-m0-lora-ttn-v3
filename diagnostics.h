@@ -37,7 +37,7 @@
 #define DIAG_FAULT_DS18B20_READ_FAIL  0x0004u  // one device present, but its read failed
 #define DIAG_FAULT_INA219_READ_FAIL   0x0008u  // solar: INA219 seen at boot, live read bad
 #define DIAG_FAULT_PERSIST_CORRUPT    0x0010u  // .noinit looked ours but the CRC failed
-#define DIAG_FAULT_TX_TIMEOUT         0x0020u  // the previous uplink hit its TX timeout
+#define DIAG_FAULT_TX_TIMEOUT         0x0020u  // an uplink failed (timeout or refused) since last report
 #define DIAG_FAULT_LOW_BATTERY        0x0040u  // vbat below the hard floor
 
 // Notably ABSENT: "INA219 missing". One binary serves every board, so a primary
@@ -75,7 +75,9 @@ struct DiagInputs {
   bool     ina219ReadOk;    // solar: a live INA219 read looked plausible
   uint16_t probeConfig;     // INA219 config register read during the probe (0 if none)
   bool     clockValid;
-  bool     lastTxTimeout;   // the previous data uplink timed out
+  bool     lastTxTimeout;   // an uplink (data or out-of-band) failed since the
+                            // last successful diagnostic report -- a latch the
+                            // .ino clears only after this frame transmits
   uint16_t vbatMv;
 };
 

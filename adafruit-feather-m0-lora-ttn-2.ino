@@ -198,7 +198,13 @@ static uint8_t  g_ds18Count = 0;       // OneWire device count, cached in setup
 static bool     g_ina219Present = false;  // the boot probe found the INA219
 static uint16_t g_probeConfig = 0;     // INA219 config register read during the probe
 static bool     g_ina219ReadOk = true; // solar: last live INA219 read looked plausible
-static bool     lastTxTimedOut = false;// the previous data uplink hit its TX timeout
+// An uplink failed (TX timeout, or the stack refused to queue) and no diagnostic
+// frame has reported it yet. A LATCH, not a last-attempt flag: the overnight
+// 2026-07-27/28 stall proved a plain flag can never reach the air -- the fault
+// frame that would carry it is dropped by the same failure, and the next
+// successful data uplink then cleared the flag before the next diagnostic
+// evaluation. Cleared ONLY after a diagnostic frame actually transmits.
+static bool     g_txFaultPending = false;
 static bool     bootDiagSent = false;  // has the once-per-boot diagnostic frame gone out?
 
 // Verbose DEV diagnostics (diagnostics.h) -- a full-state snapshot on its own
@@ -508,7 +514,18 @@ void transmitBatchAndWait() {
     LMIC_requestNetworkTime(onNetworkTime, nullptr);
   }
   txComplete = false;
-  LMIC_setTxData2(currentFPort, payload, len, 0);
+  logTxSchedState(F("data TX:"));
+  lmic_tx_error_t txrc = LMIC_setTxData2(currentFPort, payload, len, 0);
+  if (txrc != LMIC_ERROR_SUCCESS) {
+    // Refused = nothing queued, no EV_TXCOMPLETE coming; see txFrameAndWait.
+    // ramCount is preserved (uplinkScheduleOnTxSuccess not reached), so the
+    // batch retries next cycle exactly as it does after a timeout.
+    logPrint(F("FATAL: LMIC refused data uplink, rc="));
+    logPrintln((int)txrc);
+    g_txFaultPending = true;
+    if (runMode == 1) digitalWrite(LED_PIN, LOW);
+    return;
+  }
 
   // Blocking wait for EV_TXCOMPLETE (with 2-minute safety timeout)
   uint32_t waitStart = millis();
@@ -519,10 +536,9 @@ void transmitBatchAndWait() {
   // If we broke out due to timeout, clear the pending TX job to prevent a hung state
   if (!txComplete) {
     logPrintln(F("FATAL: TX Timeout. Clearing pending TX data."));
+    logTxSchedState(F("data TIMEOUT:"));
     LMIC_clrTxData();
-    lastTxTimedOut = true;   // surfaced on the next diagnostic frame
-  } else {
-    lastTxTimedOut = false;
+    g_txFaultPending = true;   // latched until a diagnostic frame reports it
   }
 
   if (runMode == 1) {
@@ -581,8 +597,28 @@ static void gatherDiagInputs(DiagInputs *in) {
   in->ina219ReadOk   = g_ina219ReadOk;
   in->probeConfig    = g_probeConfig;
   in->clockValid     = persist.clockValid;
-  in->lastTxTimeout  = lastTxTimedOut;
+  in->lastTxTimeout  = g_txFaultPending;
   in->vbatMv         = (uint16_t)(VBAT_VOLTS() * 1000.0f);
+}
+
+// DEV-only: one line of LMIC TX-scheduling state, so a stalled TX is diagnosable
+// from the serial log alone. Prints opmode plus how far in the future LMIC
+// believes each throttle stamp lies (ms; negative = already passed). A healthy
+// stack after an idle hour shows every delta well negative. Large POSITIVE
+// deltas right after idling are the signature of the clock-extender starvation
+// fixed in the DEV sleep loop (dev-note 20260728-1215).
+static void logTxSchedState(const __FlashStringHelper *tag) {
+  if (runMode != 1) return;
+  ostime_t now = os_getTime();
+  Serial.print(tag);
+  Serial.print(F(" opmode=0x"));   Serial.print(LMIC.opmode, HEX);
+  Serial.print(F(" txend_ms="));   Serial.print(osticks2ms(LMIC.txend - now));
+  Serial.print(F(" gduty_ms="));   Serial.print(osticks2ms(LMIC.globalDutyAvail - now));
+  for (uint8_t b = 0; b < MAX_BANDS; b++) {
+    Serial.print(F(" band"));      Serial.print(b);
+    Serial.print(F("_ms="));       Serial.print(osticks2ms(LMIC.bands[b].avail - now));
+  }
+  Serial.println();
 }
 
 // Send `len` bytes on `fport` and block for TXCOMPLETE (2-min timeout). Shared by
@@ -595,14 +631,27 @@ static bool txFrameAndWait(uint8_t fport, uint8_t *payload, uint8_t len) {
     return false;
   }
   txComplete = false;
-  LMIC_setTxData2(fport, payload, len, 0);
+  logTxSchedState(F("oob TX:"));
+  lmic_tx_error_t txrc = LMIC_setTxData2(fport, payload, len, 0);
+  if (txrc != LMIC_ERROR_SUCCESS) {
+    // Refused = nothing was queued (busy with a pending MAC answer, frame
+    // infeasible, ...), so no EV_TXCOMPLETE will ever come. Waiting would burn
+    // the full 2 minutes for nothing -- worse, a MAC-answer uplink completing
+    // meanwhile would set txComplete and pass off as OUR frame. Bail now.
+    logPrint(F("out-of-band frame: LMIC refused, rc="));
+    logPrintln((int)txrc);
+    g_txFaultPending = true;
+    return false;
+  }
   uint32_t waitStart = millis();
   while (!txComplete && (millis() - waitStart < 120000UL)) {
     os_runloop_once();
   }
   if (!txComplete) {
     logPrintln(F("out-of-band frame: TX timeout, clearing"));
+    logTxSchedState(F("oob TIMEOUT:"));
     LMIC_clrTxData();
+    g_txFaultPending = true;
     return false;
   }
   return true;
@@ -639,6 +688,11 @@ static void evaluateAndMaybeSendDiag() {
                  faults, nowEpoch, persist.clockValid);
     persistSeal(&persist);   // the rate-limit latch must survive a reset
     bootDiagSent = true;     // the once-per-boot frame is now out
+    // The frame that just went out carried the TX-fault latch (gathered into
+    // in.lastTxTimeout above), so the fault is now REPORTED. Only here does the
+    // latch clear -- a data-uplink success must not, or an overnight string of
+    // failures vanishes from telemetry the moment one uplink gets through.
+    g_txFaultPending = false;
   }
 }
 
@@ -946,6 +1000,20 @@ void loop() {
     uint32_t waitStart = millis();
     while (millis() - waitStart < (sleepIntervalSeconds * 1000UL)) {
       os_runloop_once();
+      // Feed LMIC's tick counter. os_runloop_once() samples the clock ONLY when
+      // a job is scheduled; with an empty queue (all of this loop) it never
+      // does. The HAL extends micros() -- which wraps every 71.6 min -- by
+      // watching one bit that toggles every 35.8 min, so any unsampled gap
+      // longer than that can swallow a whole micros() wrap and set os_getTime()
+      // back 71.6 min. LMIC's duty/channel stamps then sit "in the future",
+      // engineUpdate defers the next TX for up to that long, and the uplink
+      // hits the 2-minute timeout with nothing on air. This is exactly what
+      // gisebo-05 did all night 2026-07-27/28 (~2 of 3 hourly cycles lost, the
+      // predicted 73% miss rate for a 62-min gap). PROD is immune: deep sleep
+      // freezes micros(), so its gaps contain no elapsed time. One read per
+      // iteration keeps the extender continuous. See
+      // docs/dev-notes/20260728-1215_dev-sleep-starves-lmic-clock.md.
+      (void)os_getTime();
       delay(1); // Small delay to prevent watchdog resets
     }
   } else {
