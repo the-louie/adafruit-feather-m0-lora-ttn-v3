@@ -1,0 +1,186 @@
+=== 1. RAW FIELD PRESENCE (does "missing" mean zero?) ===
+frames total          : 35
+f_port key absent     : 19  -> indices 2,3,4,5,8,9,11,13,14,15,16,17,19,21,25,26,28,29,31
+f_cnt  key absent     : 6  -> indices 0,6,7,10,18,22
+payload len 0 frames  : 19
+port histogram        : {"2":2,"3":7,"20":3,"21":4,"undefined":19}
+
+=== 2. TIMELINE (repo decoder) ===
+#  time CEST      port fcnt len kind     upc boot batt  panelV pmA  ewma  mAh iv  season flags       temps                     rssi snr  sf
+0  07-27 19:39:58 21   --   15  DATA-SOL 0   1    4.208 5.07   0    0.004 0   5          CB          26.2                      -57  10.8 7 
+1  07-27 19:40:04 2    1    11  FAULT        1    4.209                                  CB CV rc=64                           -61  13   7 
+2  07-27 19:40:10 --   2    0   NO-PORT                                                                                        -59  13.8 7 
+3  07-27 19:40:16 --   3    0   NO-PORT                                                                                        -61  14   7 
+4  07-27 19:40:22 --   4    0   NO-PORT                                                                                        -66  13.5 7 
+5  07-27 19:40:27 --   5    0   NO-PORT                                                                                        -67  9.2  7 
+6  07-27 20:16:32 20   --   9   DATA-PRI 0        3.75                        5                      23.8                      -68  12   7 
+7  07-27 20:16:58 20   --   9   DATA-PRI 0        3.75                        5                      23                        -72  13.8 7 
+8  07-27 20:17:04 --   1    0   NO-PORT                                                                                        -73  13.5 7 
+9  07-27 20:17:10 --   2    0   NO-PORT                                                                                        -79  10.2 7 
+10 07-27 20:23:51 20   --   9   DATA-PRI 0        3.755                       5                      24.2                      -57  14   7 
+11 07-27 20:23:57 --   1    0   NO-PORT                                                                                        -61  10   7 
+12 07-27 20:24:03 3    2    22  VERBOSE      1    3.755 0      0    0     0   120 Summer CB CV rc=16                           -76  13.8 7 
+13 07-27 20:24:11 --   3    0   NO-PORT                                                                                        -68  13.8 7 
+14 07-27 20:24:17 --   4    0   NO-PORT                                                                                        -68  13.8 7 
+15 07-27 20:24:22 --   5    0   NO-PORT                                                                                        -70  13.8 7 
+16 07-27 20:24:28 --   6    0   NO-PORT                                                                                        -70  14   7 
+17 07-27 20:24:33 --   7    0   NO-PORT                                                                                        -74  10.2 7 
+18 07-27 20:53:25 21   --   15  DATA-SOL 0   1    3.755 3.84   15   0.004 1   5          CB          23                        -63  13.5 7 
+19 07-27 20:53:31 --   1    0   NO-PORT                                                                                        -59  10.2 7 
+20 07-27 20:53:38 3    2    22  VERBOSE      1    3.756 3.848  15.1 0.004 1   60  Summer CB CV rc=1                            -58  13.8 7 
+21 07-27 20:53:46 --   3    0   NO-PORT                                                                                        -60  11.8 7 
+22 07-27 20:57:04 21   --   15  DATA-SOL 0   1    3.756 3.84   16   0.004 1   5          CB          24                        -55  10.2 7 
+23 07-27 20:57:10 2    1    11  FAULT        1    3.756                                  CB CV rc=16                           -56  13.2 7 
+24 07-27 20:57:17 3    2    22  VERBOSE      1    3.754 3.852  15.9 0.004 1   60  Summer CB CV rc=16                           -59  14.2 7 
+25 07-27 20:57:25 --   3    0   NO-PORT                                                                                        -60  13.8 7 
+26 07-27 20:57:30 --   4    0   NO-PORT                                                                                        -63  11.5 7 
+27 07-27 21:57:23 3    5    22  VERBOSE      1    3.75  3.852  15.9 0.043 17  60  Summer CB CV rc=16                           -61  14   7 
+28 07-27 21:57:30 --   6    0   NO-PORT                                                                                        -64  13.5 7 
+29 07-27 21:57:36 --   7    0   NO-PORT                                                                                        -66  10.5 7 
+30 07-28 01:01:29 3    8    22  VERBOSE      1    3.738 3.852  15.9 0.157 64  60  Summer CB CV rc=16                           -66  13.8 7 
+31 07-28 01:01:36 --   9    0   NO-PORT                                                                                        -68  13.5 7 
+32 07-28 05:15:35 21   10   15  DATA-SOL 1   1    3.724 3.84   16   0.286 128 60         CB CV       19.6,19.6,19.6,20,20.4,21 -68  14   7 
+33 07-28 05:15:42 3    11   22  VERBOSE      1    3.724 3.852  15.9 0.286 128 60  Summer CB CV rc=16                           -68  13.2 7 
+34 07-28 09:21:49 3    12   22  VERBOSE      1    3.72  3.852  15.9 0.396 192 60  Summer CB CV rc=16                           -64  13.8 7 
+
+=== 3. REPO DECODER vs TTN FORMATTER (disagreements) ===
+#0 07-27 19:39:58 port=21: entries: ttn=[{"temperature":26.2,"timestamp":"2026-07-27T17:39:58.172Z"}] repo=[{"timestamp":"2026-07-27T17:39:58.172Z","temperature":26.2}]
+#1 07-27 19:40:04 port=2 len=11  ttn=NOT DECODED repo=decoded
+#2 07-27 19:40:10 port=undefined len=0  ttn=NOT DECODED repo=decoded errors=["unexpected FPort undefined for a v7 device"]
+#3 07-27 19:40:16 port=undefined len=0  ttn=NOT DECODED repo=decoded errors=["unexpected FPort undefined for a v7 device"]
+#4 07-27 19:40:22 port=undefined len=0  ttn=NOT DECODED repo=decoded errors=["unexpected FPort undefined for a v7 device"]
+#5 07-27 19:40:27 port=undefined len=0  ttn=NOT DECODED repo=decoded errors=["unexpected FPort undefined for a v7 device"]
+#6 07-27 20:16:32 port=20: entries: ttn=[{"temperature":23.8,"timestamp":"2026-07-27T18:16:32.499Z"}] repo=[{"timestamp":"2026-07-27T18:16:32.499Z","temperature":23.8}]
+#7 07-27 20:16:58 port=20: entries: ttn=[{"temperature":23,"timestamp":"2026-07-27T18:16:58.838Z"}] repo=[{"timestamp":"2026-07-27T18:16:58.838Z","temperature":23}]
+#8 07-27 20:17:04 port=undefined len=0  ttn=NOT DECODED repo=decoded errors=["unexpected FPort undefined for a v7 device"]
+#9 07-27 20:17:10 port=undefined len=0  ttn=NOT DECODED repo=decoded errors=["unexpected FPort undefined for a v7 device"]
+#10 07-27 20:23:51 port=20: entries: ttn=[{"temperature":24.2,"timestamp":"2026-07-27T18:23:51.050Z"}] repo=[{"timestamp":"2026-07-27T18:23:51.050Z","temperature":24.2}]
+#11 07-27 20:23:57 port=undefined len=0  ttn=NOT DECODED repo=decoded errors=["unexpected FPort undefined for a v7 device"]
+#12 07-27 20:24:03 port=3: season: ttn="Winter" repo="Summer"
+#13 07-27 20:24:11 port=undefined len=0  ttn=NOT DECODED repo=decoded errors=["unexpected FPort undefined for a v7 device"]
+#14 07-27 20:24:17 port=undefined len=0  ttn=NOT DECODED repo=decoded errors=["unexpected FPort undefined for a v7 device"]
+#15 07-27 20:24:22 port=undefined len=0  ttn=NOT DECODED repo=decoded errors=["unexpected FPort undefined for a v7 device"]
+#16 07-27 20:24:28 port=undefined len=0  ttn=NOT DECODED repo=decoded errors=["unexpected FPort undefined for a v7 device"]
+#17 07-27 20:24:33 port=undefined len=0  ttn=NOT DECODED repo=decoded errors=["unexpected FPort undefined for a v7 device"]
+#18 07-27 20:53:25 port=21: entries: ttn=[{"temperature":23,"timestamp":"2026-07-27T18:53:25.193Z"}] repo=[{"timestamp":"2026-07-27T18:53:25.193Z","temperature":23}]
+#19 07-27 20:53:31 port=undefined len=0  ttn=NOT DECODED repo=decoded errors=["unexpected FPort undefined for a v7 device"]
+#21 07-27 20:53:46 port=undefined len=0  ttn=NOT DECODED repo=decoded errors=["unexpected FPort undefined for a v7 device"]
+#22 07-27 20:57:04 port=21: entries: ttn=[{"temperature":24,"timestamp":"2026-07-27T18:57:04.264Z"}] repo=[{"timestamp":"2026-07-27T18:57:04.264Z","temperature":24}]
+#25 07-27 20:57:25 port=undefined len=0  ttn=NOT DECODED repo=decoded errors=["unexpected FPort undefined for a v7 device"]
+#26 07-27 20:57:30 port=undefined len=0  ttn=NOT DECODED repo=decoded errors=["unexpected FPort undefined for a v7 device"]
+#28 07-27 21:57:30 port=undefined len=0  ttn=NOT DECODED repo=decoded errors=["unexpected FPort undefined for a v7 device"]
+#29 07-27 21:57:36 port=undefined len=0  ttn=NOT DECODED repo=decoded errors=["unexpected FPort undefined for a v7 device"]
+#31 07-28 01:01:36 port=undefined len=0  ttn=NOT DECODED repo=decoded errors=["unexpected FPort undefined for a v7 device"]
+#32 07-28 05:15:35 port=21: entries: ttn=[{"temperature":19.6,"timestamp":"2026-07-28T03:15:35.486Z"},{"temperature":19.6,"timestamp":"2026-07-28T02:15:35.486Z"},{"temperature":19.6,"timestamp":"2026-07-28T01:15:35.486Z"},{"temperature":20,"timestamp":"2026-07-28T00:15:35.486Z"},{"temperature":20.4,"timestamp":"2026-07-27T23:15:35.486Z"},{"temperature":21,"timestamp":"2026-07-27T22:15:35.486Z"}] repo=[{"timestamp":"2026-07-28T03:15:35.486Z","temperature":19.6},{"timestamp":"2026-07-28T02:15:35.486Z","temperature":19.6},{"timestamp":"2026-07-28T01:15:35.486Z","temperature":19.6},{"timestamp":"2026-07-28T00:15:35.486Z","temperature":20},{"timestamp":"2026-07-27T23:15:35.486Z","temperature":20.4},{"timestamp":"2026-07-27T22:15:35.486Z","temperature":21}]
+
+=== 4. INTER-FRAME GAPS ===
+07-27 19:39:58 -> 07-27 19:40:04      0.1 min  (#0->#1)
+07-27 19:40:04 -> 07-27 19:40:10      0.1 min  (#1->#2)
+07-27 19:40:10 -> 07-27 19:40:16      0.1 min  (#2->#3)
+07-27 19:40:16 -> 07-27 19:40:22      0.1 min  (#3->#4)
+07-27 19:40:22 -> 07-27 19:40:27      0.1 min  (#4->#5)
+07-27 19:40:27 -> 07-27 20:16:32     36.1 min  (#5->#6)
+07-27 20:16:32 -> 07-27 20:16:58      0.4 min  (#6->#7)
+07-27 20:16:58 -> 07-27 20:17:04      0.1 min  (#7->#8)
+07-27 20:17:04 -> 07-27 20:17:10      0.1 min  (#8->#9)
+07-27 20:17:10 -> 07-27 20:23:51      6.7 min  (#9->#10)
+07-27 20:23:51 -> 07-27 20:23:57      0.1 min  (#10->#11)
+07-27 20:23:57 -> 07-27 20:24:03      0.1 min  (#11->#12)
+07-27 20:24:03 -> 07-27 20:24:11      0.1 min  (#12->#13)
+07-27 20:24:11 -> 07-27 20:24:17      0.1 min  (#13->#14)
+07-27 20:24:17 -> 07-27 20:24:22      0.1 min  (#14->#15)
+07-27 20:24:22 -> 07-27 20:24:28      0.1 min  (#15->#16)
+07-27 20:24:28 -> 07-27 20:24:33      0.1 min  (#16->#17)
+07-27 20:24:33 -> 07-27 20:53:25     28.9 min  (#17->#18)
+07-27 20:53:25 -> 07-27 20:53:31      0.1 min  (#18->#19)
+07-27 20:53:31 -> 07-27 20:53:38      0.1 min  (#19->#20)
+07-27 20:53:38 -> 07-27 20:53:46      0.1 min  (#20->#21)
+07-27 20:53:46 -> 07-27 20:57:04      3.3 min  (#21->#22)
+07-27 20:57:04 -> 07-27 20:57:10      0.1 min  (#22->#23)
+07-27 20:57:10 -> 07-27 20:57:17      0.1 min  (#23->#24)
+07-27 20:57:17 -> 07-27 20:57:25      0.1 min  (#24->#25)
+07-27 20:57:25 -> 07-27 20:57:30      0.1 min  (#25->#26)
+07-27 20:57:30 -> 07-27 21:57:23     59.9 min  (#26->#27)
+07-27 21:57:23 -> 07-27 21:57:30      0.1 min  (#27->#28)
+07-27 21:57:30 -> 07-27 21:57:36      0.1 min  (#28->#29)
+07-27 21:57:36 -> 07-28 01:01:29    183.9 min  (#29->#30)  <-- LONG
+07-28 01:01:29 -> 07-28 01:01:36      0.1 min  (#30->#31)
+07-28 01:01:36 -> 07-28 05:15:35    254.0 min  (#31->#32)  <-- LONG
+07-28 05:15:35 -> 07-28 05:15:42      0.1 min  (#32->#33)
+07-28 05:15:42 -> 07-28 09:21:49    246.1 min  (#33->#34)  <-- LONG
+
+last frame 07-28 09:21:49 CEST; silence since then: 106 min (as of run time)
+
+=== 5. f_cnt SEQUENCE (session restarts) ===
+# 0 07-27 19:39:58  f_cnt=  0 port= 21
+# 1 07-27 19:40:04  f_cnt=  1 port=  2
+# 2 07-27 19:40:10  f_cnt=  2 port= --
+# 3 07-27 19:40:16  f_cnt=  3 port= --
+# 4 07-27 19:40:22  f_cnt=  4 port= --
+# 5 07-27 19:40:27  f_cnt=  5 port= --
+# 6 07-27 20:16:32  f_cnt=  0 port= 20  *** f_cnt RESET -> new session / rejoin
+# 7 07-27 20:16:58  f_cnt=  0 port= 20  *** NON-MONOTONIC (prev 0)
+# 8 07-27 20:17:04  f_cnt=  1 port= --
+# 9 07-27 20:17:10  f_cnt=  2 port= --
+#10 07-27 20:23:51  f_cnt=  0 port= 20  *** f_cnt RESET -> new session / rejoin
+#11 07-27 20:23:57  f_cnt=  1 port= --
+#12 07-27 20:24:03  f_cnt=  2 port=  3
+#13 07-27 20:24:11  f_cnt=  3 port= --
+#14 07-27 20:24:17  f_cnt=  4 port= --
+#15 07-27 20:24:22  f_cnt=  5 port= --
+#16 07-27 20:24:28  f_cnt=  6 port= --
+#17 07-27 20:24:33  f_cnt=  7 port= --
+#18 07-27 20:53:25  f_cnt=  0 port= 21  *** f_cnt RESET -> new session / rejoin
+#19 07-27 20:53:31  f_cnt=  1 port= --
+#20 07-27 20:53:38  f_cnt=  2 port=  3
+#21 07-27 20:53:46  f_cnt=  3 port= --
+#22 07-27 20:57:04  f_cnt=  0 port= 21  *** f_cnt RESET -> new session / rejoin
+#23 07-27 20:57:10  f_cnt=  1 port=  2
+#24 07-27 20:57:17  f_cnt=  2 port=  3
+#25 07-27 20:57:25  f_cnt=  3 port= --
+#26 07-27 20:57:30  f_cnt=  4 port= --
+#27 07-27 21:57:23  f_cnt=  5 port=  3
+#28 07-27 21:57:30  f_cnt=  6 port= --
+#29 07-27 21:57:36  f_cnt=  7 port= --
+#30 07-28 01:01:29  f_cnt=  8 port=  3
+#31 07-28 01:01:36  f_cnt=  9 port= --
+#32 07-28 05:15:35  f_cnt= 10 port= 21
+#33 07-28 05:15:42  f_cnt= 11 port=  3
+#34 07-28 09:21:49  f_cnt= 12 port=  3
+
+=== 6. GATEWAY TIME vs NETWORK received_at ===
+# 0 07-27 19:39:58  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-57 snr=10.8
+# 1 07-27 19:40:04  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-61 snr=13
+# 2 07-27 19:40:10  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-59 snr=13.8
+# 3 07-27 19:40:16  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-61 snr=14
+# 4 07-27 19:40:22  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-66 snr=13.5
+# 5 07-27 19:40:27  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-67 snr=9.2
+# 6 07-27 20:16:32  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-68 snr=12
+# 7 07-27 20:16:58  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-72 snr=13.8
+# 8 07-27 20:17:04  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-73 snr=13.5
+# 9 07-27 20:17:10  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-79 snr=10.2
+#10 07-27 20:23:51  skew    33.55 min  gw=telamon-hkv-norrangen-1 rssi=-57 snr=14
+#11 07-27 20:23:57  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-61 snr=10
+#12 07-27 20:24:03  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-76 snr=13.8
+#13 07-27 20:24:11  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-68 snr=13.8
+#14 07-27 20:24:17  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-68 snr=13.8
+#15 07-27 20:24:22  skew    33.55 min  gw=telamon-hkv-norrangen-1 rssi=-70 snr=13.8
+#16 07-27 20:24:28  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-70 snr=14
+#17 07-27 20:24:33  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-74 snr=10.2
+#18 07-27 20:53:25  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-63 snr=13.5
+#19 07-27 20:53:31  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-59 snr=10.2
+#20 07-27 20:53:38  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-58 snr=13.8
+#21 07-27 20:53:46  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-60 snr=11.8
+#22 07-27 20:57:04  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-55 snr=10.2
+#23 07-27 20:57:10  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-56 snr=13.2
+#24 07-27 20:57:17  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-59 snr=14.2
+#25 07-27 20:57:25  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-60 snr=13.8
+#26 07-27 20:57:30  skew    33.54 min  gw=telamon-hkv-norrangen-1 rssi=-63 snr=11.5
+#27 07-27 21:57:23  skew    -0.02 min  gw=telamon-hkv-norrangen-1 rssi=-61 snr=14
+#28 07-27 21:57:30  skew    -0.02 min  gw=telamon-hkv-norrangen-1 rssi=-64 snr=13.5
+#29 07-27 21:57:36  skew    -0.02 min  gw=telamon-hkv-norrangen-1 rssi=-66 snr=10.5
+#30 07-28 01:01:29  skew     2.22 min  gw=telamon-hkv-norrangen-1 rssi=-66 snr=13.8
+#31 07-28 01:01:36  skew     2.22 min  gw=telamon-hkv-norrangen-1 rssi=-68 snr=13.5
+#32 07-28 05:15:35  skew     2.22 min  gw=telamon-hkv-norrangen-1 rssi=-68 snr=14
+#33 07-28 05:15:42  skew     2.22 min  gw=telamon-hkv-norrangen-1 rssi=-68 snr=13.2
+#34 07-28 09:21:49  skew     2.22 min  gw=telamon-hkv-norrangen-1 rssi=-64 snr=13.8
