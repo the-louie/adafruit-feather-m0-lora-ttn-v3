@@ -963,7 +963,7 @@ revisit only if the panel or shunt changes.
 
 ## 21. Only one out-of-band frame gets through per cycle
 
-**Status:** Observed over the air 2026-07-28, twice, on the post-fix firmware.
+**Status:** **IMPLEMENTED 2026-07-28** — `docs/dev-notes/20260728-2000_first-sample-dt-and-tx-ready-wait.md`. Pending flash-verify: a boot must land all THREE frames in one cycle.
 **Complexity:** Low–Medium
 **Estimated time:** 3–4 h
 **Sprint:** 07
@@ -1031,8 +1031,7 @@ in the middle of a run.
 
 ## 22. The first sample after every boot fabricates a full interval of dt
 
-**Status:** Not started. Found reviewing the solar signal 2026-07-28; a small
-instance is visible in the live data.
+**Status:** **IMPLEMENTED 2026-07-28** — `docs/dev-notes/20260728-2000_first-sample-dt-and-tx-ready-wait.md`, with six new host cases. Pending flash-verify: a boot's first solar frame must report `harvest_mah` unchanged from the pre-reset value (warm) or 0 (cold).
 **Complexity:** Low
 **Estimated time:** 1–2 h
 **Sprint:** 07
