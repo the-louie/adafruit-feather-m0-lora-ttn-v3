@@ -43,6 +43,8 @@ These are deliberate and load-bearing. Don't undo them without asking:
 - **`LMIC_setClockError((uint32_t)MAX_CLOCK_ERROR * 5 / 100)`** — the cast matters; without it the expression overflows 16 bits. The M0's RC oscillator drifts and needs the 5% relaxation.
 - **`LMIC_setLinkCheckMode(0)` inside `EV_JOINED`.** Otherwise the gateway burns its duty cycle on MAC ACKs.
 - **`currentIntervalIndex` has exactly two write points:** `setup()` and the post-`EV_TXCOMPLETE` block. Interval changes only after a successful uplink.
+- **Any long `os_runloop_once()` busy-wait must also call `os_getTime()` each iteration** (the DEV sleep loop does). `os_runloop_once()` samples LMIC's clock only when a job is scheduled; an idle hour never samples it, and the HAL's `micros()` extender silently loses 71.6 min whenever its watched bit (35.8 min period) toggles twice unseen. That rewound clock made LMIC defer TX past the 2-minute timeout for ~2 of 3 overnight cycles on 2026-07-27/28 — DEV-only by construction, since PROD's deep sleep freezes `micros()`. Do not remove the `os_getTime()` call. See `docs/dev-notes/20260728-1215_dev-sleep-starves-lmic-clock.md`.
+- **Check `LMIC_setTxData2()`'s return value.** A refusal (e.g. `LMIC_ERROR_TX_BUSY` while LMIC owes the network a MAC answer) queues nothing, so `EV_TXCOMPLETE` never comes — and a MAC-answer uplink completing meanwhile can set `txComplete` and impersonate the application frame. Both TX paths bail immediately on a non-zero result and latch `g_txFaultPending`, which clears only after a diagnostic frame reports it (a data-uplink success must NOT clear it).
 
 ## Two power variants, chosen at boot
 
@@ -136,6 +138,7 @@ Run **`./scripts/setup-toolchain.sh`** as your normal user (no root). It install
 arduino-cli compile --fqbn adafruit:samd:adafruit_feather_m0 .
 # baseline 2026-07-17: 61632 bytes (23%) of program storage
 # 2026-07-27 with diagnostics + verbose + probe fix: ~72.9 kB (27%)
+# 2026-07-28 with the overnight fixes (DEV clock sampling, TX hardening, INA219 wake): 73548 B (28%)
 ```
 
 Pinned versions: adafruit:samd 1.7.17, **MCCI LMIC 6.0.1**, Arduino Low Power 1.2.2, RTCZero 1.6.0, OneWire 2.3.8, DallasTemperature 4.0.6.

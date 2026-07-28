@@ -150,11 +150,10 @@ static PowerPolicy *policy = &primaryPolicy;
 static PowerVariant powerVariant = VARIANT_PRIMARY;
 static Adafruit_INA219 ina219;   // only used on the solar variant
 
-// millis() of the last sensor wake, so the solar EWMA/harvest get a real dt.
-// The RTC would drift-correct better, but wake-to-wake dt only needs elapsed
-// seconds, and millis() is fine awake; deep sleep advances the RTC not millis(),
-// so we take dt from the interval we just slept instead (see readAndBufferSensors).
-static uint32_t lastWakeMillis = 0;
+// The solar EWMA/harvest dt is the interval we just slept (readAndBufferSensors)
+// -- NOT wall-clock: millis() does not advance through deep sleep, and elapsed
+// seconds is all the EWMA needs. (A lastWakeMillis variable for this was
+// declared but never used; removed 2026-07-28.)
 
 // State that survives NVIC_SystemReset(). NOT initialised by the C runtime --
 // that is the whole point. Validity is checked in setup() (persist.h).

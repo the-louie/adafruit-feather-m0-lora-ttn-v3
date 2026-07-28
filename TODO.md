@@ -688,6 +688,8 @@ Things that cannot be verified any other way:
 
 The power telemetry has never been checked against a reference. `getBatteryVoltage()` reads A7 through a 100k/100k divider; the solar path reads panel **bus voltage** and current from the INA219 (16 V/400 mA calibration, 0.1 mA/LSB) and feeds the sun EWMA and the harvest accumulator. All of this is host-tested *logic* and compile-verified *glue* — but the actual ADC/I2C readings, the divider ratio, and the INA219 calibration are unverified on silicon. A wrong divider or calibration silently skews the battery bands (and thus the interval ladder) and the harvest figure, with no symptom in the data.
 
+**2026-07-28 update — the item's fear was justified, and the first live night caught it.** Every post-boot INA219 reading was frozen (`powerSave(true)` was never undone; fixed in `007a46b`, `docs/dev-notes/20260728-1230_ina219-powersave-freeze.md`), so no telemetry before that fix says anything about metering accuracy. After re-flashing, first check the qualitative signature (panel V/I move frame-to-frame; `panel_v` collapses after sunset; `harvest_mah` flat at night); this item's PSU/DMM sweep then remains the quantitative pass.
+
 ### Procedure (turnkey)
 
 Read values over the air: strap **DEV** and use the FPort 2 diagnostic frame (`battery_v`, `ina219_config`, `ina219_seen`) plus item 16's FPort 3 verbose frame (the full set) — no USB needed, and on solar it must be USB-free anyway (serial and solar are mutually exclusive; item 12 Notes). Record one row per setpoint in a `docs/dev-notes/` table.
