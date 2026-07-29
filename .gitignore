@@ -9,3 +9,6 @@
 
 # Secret key-derivation salt (crown jewel) -- never commit
 keygen_salt.h
+
+# Firmware images handed off for flashing (rebuildable from source)
+*.ino.bin
