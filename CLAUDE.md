@@ -144,9 +144,9 @@ arduino-cli compile --fqbn adafruit:samd:adafruit_feather_m0 .   # bare compile 
 # 2026-07-27 with diagnostics + verbose + probe fix: ~72.9 kB (27%)
 # 2026-07-28 with the overnight fixes (DEV clock sampling, TX hardening, INA219 wake): 73548 B (28%)
 # 2026-07-29 items 18-26 + QA + schema 3 (fw_commit): ~74.7 kB (28%)
-
-**Release images come from `scripts/build.sh`, never from a bare compile.** The verbose frame's schema-3 bytes 34-36 carry the first 6 hex chars of the build commit, injected via `compiler.cpp.extra_flags` (NOT `build.extra_flags`, which the board definition owns). The script runs both test suites, refuses a dirty tree (the hash must name a commit containing exactly the built source), and `--clean`s so a stale cache can't mask the flag. A bare `arduino-cli compile` produces `fw_commit: null` on the wire -- the "unofficial build" marker, deliberate so ad-hoc images can't masquerade as releases.
 ```
+
+**Release images come from `scripts/build.sh`, never from a bare compile.** The verbose frame's schema-3 bytes 34-36 carry the first 6 hex chars of the build commit, injected via `compiler.cpp.extra_flags` (NOT `build.extra_flags`, which the board definition owns). The script runs both test suites, refuses a dirty tree (the hash must name a commit containing exactly the built source), and `--clean`s so a stale cache can't mask the flag. A bare `arduino-cli compile` produces `fw_commit: null` on the wire — the "unofficial build" marker, deliberate so ad-hoc images can't masquerade as releases.
 
 Pinned versions: adafruit:samd 1.7.17, **MCCI LMIC 6.0.1**, Arduino Low Power 1.2.2, RTCZero 1.6.0, OneWire 2.3.8, DallasTemperature 4.0.6.
 
