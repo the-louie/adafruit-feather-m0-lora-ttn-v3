@@ -1325,3 +1325,93 @@ logic → header). Over the air: verbose frames at 60-minute spacing while the
 wake interval is 6 h (force with a bench battery/temperature); `cycle_count`
 advancing by 1 per wake; panel min < mean < max on a partly cloudy day;
 `clarity` null/flagged for the first 24 h after a cold boot and computed after.
+
+---
+
+## 26. `sunPresent()`'s absolute 3000 mV threshold is structurally unreachable at night
+
+**Status:** **CONFIRMED over the air 2026-07-29** — the first honest night of
+panel data (capture `ttn-captures/gisebo05-ttn-20260729-morning.jsonl`).
+**Complexity:** Medium (signature change through a host-tested header)
+**Estimated time:** 3–5 h
+**Sprint:** 07 — **should land before the queued flash**, or the EWMA re-poisons
+within ~13 h of the reboot.
+
+### Problem
+
+The night half of the sun signal executed for the first time on 2026-07-28/29 —
+live INA219 readings, panel current a true 0 mA all night — and the design
+assumption failed: **the bus voltage never collapsed**. It sat at
+**battery − ~180 mV ≈ 3.57–3.61 V** from dusk to dawn (back-fed pack voltage on
+the charger input node), far above `SUN_PRESENT_MV` (3000 mV). `sunPresent()`
+returned true through eight hours of total darkness and the EWMA **rose
+monotonically 0.255 → 0.529 overnight** — the exact poisoning signature of the
+frozen-sensor defect, now from an honest sensor.
+
+Structural, not incidental: the night bus tracks the pack, the pack lives in
+3.4–4.2 V (the Feather browns out below ~3.4), so night bus ≈ 3.2–4.0 V — the
+3.0 V threshold cannot be reached while the device is alive. Consequences chain
+exactly as before: the EWMA converges on 1.0 (day AND night count as sun), the
+bonus latches around 0.55 (**projected ~10:00 on 2026-07-29**) and can never
+release (0.45 unreachable from an always-1 input). The `voltage_offset == 0`
+second gate holds it un-applied while the pack sits below the 3.90 V improve
+edge — the same bounded-oscillation containment as before, not harmlessness.
+
+### Why the two obvious fixes are both wrong (measured, not argued)
+
+The overnight bus-vs-battery table:
+
+| when | bus − batt | panel mA | truth |
+|---|---|---|---|
+| 16:07 (sun) | **+122 mV** | 22 | sun |
+| 17:07 | +9 mV | 13.8 | sun |
+| **18:07 (low sun)** | **−90 mV** | **11.6** | **sun** |
+| 19:07 (dusk) | −169 mV | 2.4 | sun |
+| 21:07–05:08 (night) | **−177…−186 mV** | **0** | dark |
+| 06:08–07:08 (dawn) | −181…−179 mV | 1–2 | sun |
+| boot 14:05 (terminated) | **+940 mV** (5.10 vs 4.16) | 0 | sun |
+
+- **Raising the absolute threshold above 4.2 V** misses every charging
+  operating point ever observed (3.57–3.99 V bus while current flows).
+- **A pure relative test (`busMv > batteryMv + margin`)** fails the measured
+  low-light rows: at 18:07 the panel pushed 11.6 mA with the bus **90 mV
+  below** the battery, and dawn charging runs at −180 mV. Any positive margin
+  calls those "dark".
+
+### Solution: a two-arm predicate — either arm proves sun
+
+```c
+sunPresent = (currentMa >= SUN_CURRENT_MA)                    // ~1 mA
+          || (busMv > batteryMv + SUN_BUS_ABOVE_BATT_MV);     // ~150 mV
+```
+
+- **Current arm** covers every charging case, including the measured
+  bus-below-battery low-light rows (11.6, 2.4, 1–2 mA all ≥ 1).
+- **Relative arm** covers the one case the current arm cannot: charge
+  termination — full pack in bright sun, 0 mA by design, bus at panel Voc
+  (+940 mV observed). This is the founding observation of the voltage-keyed
+  design (`solar_signal.h` header) and it stays covered.
+- **Night**: 0 mA and −180 mV fails both arms. Margin 150 mV sits between the
+  tightest observed night offset (−169 mV at dusk) and the termination case
+  (+940 mV) with room; the current arm makes the +122/+9 mV charging rows
+  irrelevant to the margin choice.
+
+Plumbing: `sunPresent()` gains the battery argument →
+`ingestSample(busMv, currentMa, batteryMv, dtSeconds)` → the `.ino` passes the
+already-sampled vbat. `solar_signal.h` + `policy_solar.h` + their host tests
+change together; **payload and decoder unchanged** (firmware-only). The
+`SOLAR_NO_INA219` bench path has no current reading — its arm is always false,
+leaving the relative test only; note that at the call site.
+
+Also fold in (same header, same flash): re-derive the historical claim that
+Fall/Spring peaks at ~0.52 — the hysteresis band (0.45/0.55) was tuned for a
+0/1 duty-cycle input, which the two-arm predicate preserves, so the band should
+hold; state the check rather than assuming it.
+
+### Verification
+
+Host tests: all four measured quadrants (charging bus-above, charging
+bus-below, terminated 0 mA + Voc, night 0 mA + backfeed) plus the margins.
+Over the air, the same test that exposed this: after a flash, `sun_ewma` must
+**decrease between consecutive night frames** — the one behaviour this device
+has never shown. Watch the first night after deployment of the fix.
