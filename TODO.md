@@ -605,7 +605,17 @@ formatter cannot carry them:
    clarity for ~24 h (one `SUN_EWMA_TAU_S`) after an `f_cnt` reset /
    `cold_boot`. `expected_daylight_fraction` is emitted alongside for exactly
    this purpose.
-2. **Cutover schema inventory.** The decoder now also emits `uptime_s`,
+2. **The robust solar-input metric is the battery-voltage TREND, computed
+   here.** Decided 2026-07-29 (`docs/solar-input-measurement-research.md`):
+   `harvest_mah` carries a structural ±40%-class error in PROD, while the pack
+   itself integrates net charge physically and `battery_v` rides every frame.
+   Compute a multi-day, temperature-corrected slope (the water temperature is
+   in the same frame; the coefficient is measured at +12.8 mV/degC on
+   alkaline, smaller on li-ion) exactly as done by hand for gisebo-01/04.
+   Slope >= 0 means harvest covers consumption, which is the question that
+   matters.
+
+3. **Cutover schema inventory.** The decoder now also emits `uptime_s`,
    `uptime_h`, `cycle_count`, `ram_count`, `panel_ma_min/mean/max`,
    `panel_v_min/max`, `clarity_converging`, and the `ina219_ovf` fault name.
    The shared webhook discards unknown fields during development, but the
@@ -628,6 +638,14 @@ Uplinks are the only instrument — there is no bench testing and no test hardwa
 ---
 
 ## 11. Hardware BOM decisions
+
+**2026-07-29 addition — coulomb counter for any future board revision.** If
+gross harvest measurement ever becomes a requirement, the correct part is an
+LTC2942-class I2C gas gauge (<100 µA, integrates through the sense resistor
+while the MCU sleeps; LTC2941 is EOL, prefer LTC2942/2944) — and explicitly
+NOT an INA228/229: their charge/energy accumulators only run in continuous
+mode (~640 µA), which consumes the harvest being measured. Rationale and
+sources in `docs/solar-input-measurement-research.md`.
 
 **Status:** Partially resolved — **No MPPT — decided 2026-07-17**; first order placed
 **Complexity:** Research
@@ -706,6 +724,19 @@ Things that cannot be verified any other way:
 ### Problem
 
 The power telemetry has never been checked against a reference. `getBatteryVoltage()` reads A7 through a 100k/100k divider; the solar path reads panel **bus voltage** and current from the INA219 (16 V/400 mA calibration, 0.1 mA/LSB) and feeds the sun EWMA and the harvest accumulator. All of this is host-tested *logic* and compile-verified *glue* — but the actual ADC/I2C readings, the divider ratio, and the INA219 calibration are unverified on silicon. A wrong divider or calibration silently skews the battery bands (and thus the interval ladder) and the harvest figure, with no symptom in the data.
+
+**2026-07-29 update — the harvest error bar is ANSWERED, and it is structural.**
+The schema-2 panel profile measured the wake-sample-vs-hourly-mean error on
+live data: up to 63% in one hour, ~36% cumulative over four hours, sign varying
+hour to hour, so no calibration constant can tune it out. Point-sampling a
+sleeping device aliases against cloud timescales, full analysis and the
+weighted alternatives (coulomb counter, INA228, micro-wake sampling, battery
+trend) in `docs/solar-input-measurement-research.md`. Consequences for this
+item: `harvest_mah` is an indicative diagnostic, not a measurement; the DMM
+sweep below still verifies the INSTANTANEOUS channels (bus V, current,
+battery divider), which remain meaningful; the "harvest accumulator vs
+timed current" step should verify the integration ARITHMETIC only, not chase
+absolute accuracy PROD cannot deliver.
 
 **2026-07-28 update — the item's fear was justified, and the first live night caught it.** Every post-boot INA219 reading was frozen (`powerSave(true)` was never undone; fixed in `007a46b`, `docs/dev-notes/20260728-1230_ina219-powersave-freeze.md`), so no telemetry before that fix says anything about metering accuracy. After re-flashing, first check the qualitative signature (panel V/I move frame-to-frame; `panel_v` collapses after sunset; `harvest_mah` flat at night); this item's PSU/DMM sweep then remains the quantitative pass.
 
