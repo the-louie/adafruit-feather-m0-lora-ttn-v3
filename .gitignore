@@ -12,3 +12,9 @@ keygen_salt.h
 
 # Firmware images handed off for flashing (rebuildable from source)
 *.ino.bin
+
+# Build artifacts from scripts/build.sh
+build/
+
+# Root-owned session junk
+tmp/

@@ -47,6 +47,7 @@ const DIAG_PAYLOAD_LEN = 11;
 const VERBOSE_FPORT_DEV = 3;
 const VERBOSE_V1_LEN = 22;
 const VERBOSE_V2_LEN = 34;
+const VERBOSE_V3_LEN = 37;   // schema 3 appends the 3-byte firmware git hash
 
 // The sun EWMA's time constant (solar_signal.h: SUN_EWMA_TAU_S). clarity is
 // sun_ewma normalised by expected daylight, and the EWMA needs roughly one
@@ -135,15 +136,16 @@ function decodeDiagnostic(bytes, fPort) {
 function decodeVerbose(bytes, recvTime) {
   const data = {}, warnings = [], errors = [];
   const schema = bytes.length >= 1 ? bytes[0] : 0;
-  const expectedLen = schema >= 2 ? VERBOSE_V2_LEN : VERBOSE_V1_LEN;
+  const expectedLen = schema >= 3 ? VERBOSE_V3_LEN
+    : schema === 2 ? VERBOSE_V2_LEN : VERBOSE_V1_LEN;
   if (bytes.length !== expectedLen) {
     errors.push(`verbose FPort ${VERBOSE_FPORT_DEV} schema ${schema} expects ${expectedLen} bytes, got ${bytes.length}`);
     return { data: {}, warnings, errors };
   }
   // An unknown schema decodes as its nearest known layout, chosen by the same
   // rule as the length check above, and says which one it actually used.
-  if (schema !== 1 && schema !== 2) {
-    warnings.push(`unknown verbose schema ${schema}; decoding as v${schema >= 2 ? 2 : 1}`);
+  if (schema < 1 || schema > 3) {
+    warnings.push(`unknown verbose schema ${schema}; decoding as v${schema >= 3 ? 3 : schema >= 2 ? 2 : 1}`);
   }
   const info = bytes[1];
   data.version = FIRMWARE_VERSION;
@@ -223,6 +225,14 @@ function decodeVerbose(bytes, recvTime) {
     } else {
       data.clarity = null;
     }
+  }
+
+  if (schema >= 3) {
+    // The commit this firmware was built from (first 6 hex chars), injected at
+    // build time by scripts/build.sh. 0 = unofficial build (compiled without
+    // the script), reported as null so dashboards show the gap honestly.
+    const h = (bytes[34] << 16) | (bytes[35] << 8) | bytes[36];
+    data.fw_commit = h === 0 ? null : h.toString(16).padStart(6, "0");
   }
 
   return { data, warnings, errors };

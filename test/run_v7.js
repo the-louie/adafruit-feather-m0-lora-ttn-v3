@@ -99,7 +99,9 @@ console.log("\nv7 decoder -- clarity does NOT depend on the device clock");
 
 console.log("\nv7 decoder -- verbose schema 2 (item 25) + clarity convergence gate (24b)");
 {
-  // Build a 34-byte schema-2 frame field by field, mirroring diagEncodeVerbose.
+  // Build a 34-byte schema-2 frame field by field, mirroring what the firmware
+  // emitted between 2026-07-29 10:33 and the schema-3 flash. These captures
+  // exist on the wire, so this block is the backward-compat guarantee.
   const mk = (uptimeS, statsBit) => {
     const b = new Array(34).fill(0);
     b[0] = 2;                                    // schema
@@ -160,6 +162,35 @@ console.log("\nv7 decoder -- verbose schema 2 (item 25) + clarity convergence ga
   const s0r = decode({ bytes: s0, fPort: 3, recvTime: RECV });
   check("unknown schema 0 decodes via the v1 path with an honest warning",
         s0r.errors.length === 0 && s0r.warnings.some(w => w.includes("decoding as v1")));
+}
+
+console.log("\nv7 decoder -- verbose schema 3 (firmware commit hash)");
+{
+  // Schema 3 = the schema-2 layout plus 3 hash bytes at 34-36.
+  const mk3 = (hashBytes) => {
+    const b = new Array(37).fill(0);
+    b[0] = 3;
+    b[1] = 0x01 | 0x02 | 0x08 | 0x10;
+    b[2] = 0x01; b[3] = 1; b[4] = 5;
+    b[5] = (2 & 3) | ((1 & 3) << 2);
+    b[6] = 0x0E; b[7] = 0xD2;
+    b[22] = 0; b[23] = 1; b[24] = 0x5F; b[25] = 0x90;   // uptime 90000 s
+    b[26] = 0; b[27] = 30;
+    b[34] = hashBytes[0]; b[35] = hashBytes[1]; b[36] = hashBytes[2];
+    return b;
+  };
+  const r = decode({ bytes: mk3([0xe4, 0x0b, 0x08]), fPort: 3, recvTime: RECV });
+  check("schema3: decodes without errors", r.errors.length === 0);
+  check("schema3: fw_commit is the 6-char hex string", r.data.fw_commit === "e40b08");
+  check("schema3: schema-2 fields still present (uptime 90000)", r.data.uptime_s === 90000);
+  const un = decode({ bytes: mk3([0, 0, 0]), fPort: 3, recvTime: RECV });
+  check("schema3: hash 0x000000 -> fw_commit null (unofficial build)", un.data.fw_commit === null);
+  // Leading-zero hashes must not lose digits.
+  const lz = decode({ bytes: mk3([0x00, 0x0a, 0x1b]), fPort: 3, recvTime: RECV });
+  check("schema3: leading zeros preserved (000a1b)", lz.data.fw_commit === "000a1b");
+  // Wrong length for the declared schema still rejects loudly.
+  check("schema3: 34 bytes with schema byte 3 errors",
+        decode({ bytes: mk3([1,2,3]).slice(0, 34), fPort: 3, recvTime: RECV }).errors.length > 0);
 }
 
 console.log("\nv7 decoder -- no recvTime -> clarity null (the only real dependency)");

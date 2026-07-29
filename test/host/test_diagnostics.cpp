@@ -214,7 +214,7 @@ int main() {
     // panelStats left null: stats bytes must be zero and the info bit clear.
     uint8_t buf[DIAG_VERBOSE_LEN];
     uint8_t n = diagEncodeVerbose(buf, &v);
-    check(n == DIAG_VERBOSE_LEN, "verbose: length is 34 (schema 2)");
+    check(n == DIAG_VERBOSE_LEN, "verbose: length is 37 (schema 3)");
     check(buf[0]==DIAG_VERBOSE_SCHEMA, "verbose byte0 schema");
     check(buf[1]==(DIAG_INFO_SOLAR|DIAG_INFO_DEV|DIAG_INFO_COLD_BOOT|DIAG_INFO_CLOCK_VALID|
                    DIAG_INFO_INA219_SEEN|DIAG_INFO_BONUS_ACTIVE),
@@ -240,6 +240,16 @@ int main() {
     check(buf[29]==0 && buf[30]==0 && buf[31]==0 && buf[32]==0 && buf[33]==0,
           "verbose: null panelStats -> stats bytes zero");
     check(!(buf[1] & DIAG_INFO_PANEL_STATS), "verbose: null panelStats -> info bit clear");
+    // Schema 3: the zero-initialised snapshot encodes the unofficial-build
+    // sentinel; a real hash round-trips its three bytes big-endian.
+    check(buf[34]==0 && buf[35]==0 && buf[36]==0,
+          "verbose bytes34-36: no hash -> 0x000000 (unofficial build)");
+  }
+  {
+    VerboseSnapshot v{}; v.gitHash24 = 0xABC123;
+    uint8_t buf[DIAG_VERBOSE_LEN]; diagEncodeVerbose(buf, &v);
+    check(buf[34]==0xAB && buf[35]==0xC1 && buf[36]==0x23,
+          "verbose bytes34-36: git hash 0xABC123 big-endian");
   }
   { // invalid temp sentinel round-trips as 0x7FFF
     VerboseSnapshot v{}; v.surfaceTempCenti=VERBOSE_TEMP_INVALID;

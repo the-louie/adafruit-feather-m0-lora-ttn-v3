@@ -219,6 +219,17 @@ static bool     bootDiagSent = false;  // has the once-per-boot diagnostic frame
 // FPort, DEV-only, on a fixed cadence. DEV never deep-sleeps, so millis() advances
 // and gates the cadence directly. For a short planned outage you may want finer
 // resolution than hourly -- just lower VERBOSE_INTERVAL_MS.
+// Firmware identity for the verbose frame (schema 3, bytes 34-36): the first
+// 6 hex chars of the git commit this binary was built from, injected by
+// scripts/build.sh via -DFW_GIT_HASH24=0x<hash>. A build made any other way
+// gets 0x000000, which the decoder reports as null -- an "unofficial build"
+// marker, so a bench-flashed ad-hoc image can never masquerade as a release.
+// The hash lives only in the binary, never in a committed file: a committed
+// file cannot contain the hash of the commit that contains it.
+#ifndef FW_GIT_HASH24
+#define FW_GIT_HASH24 0x000000UL
+#endif
+
 #define VERBOSE_FPORT_DEV   3
 #define VERBOSE_INTERVAL_MS 3600000UL   // ~1 hour
 static uint32_t lastVerboseMillis = 0;
@@ -930,6 +941,7 @@ static void gatherVerbose(VerboseSnapshot *v) {
   v->ramCount      = uplinkSched.ramCount;
   v->uplinkCounter = uplinkScheduleCounterForPayload(&uplinkSched);
   v->panelStats    = &g_panelStats;       // n==0 (primary / just reset) -> bit clear
+  v->gitHash24     = (uint32_t)FW_GIT_HASH24;
 }
 
 // One out-of-cycle panel sample for the schema-2 min/mean/max profile. Called
@@ -1127,6 +1139,9 @@ void setup() {
     for (int i = 0; i < 16; i++) { if (g_creds.appKey[i] < 0x10) Serial.print('0'); Serial.print(g_creds.appKey[i], HEX); }
     Serial.println();
     Serial.println(F("JoinEUI: 0000000000000001"));
+    Serial.print(F("Firmware commit: "));
+    if ((uint32_t)FW_GIT_HASH24 == 0) Serial.println(F("(unofficial build)"));
+    else Serial.println((uint32_t)FW_GIT_HASH24, HEX);
   }
 
   // 5. Peripherals & LMIC

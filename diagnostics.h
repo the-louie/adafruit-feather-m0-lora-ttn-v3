@@ -196,10 +196,14 @@ inline void diagMarkSent(uint16_t *lastSentFaults, uint32_t *lastSentEpoch,
 // concern in DEV, so it goes out on a fixed cadence with no rate/fault gating.
 // ---------------------------------------------------------------------------
 // Schema 2 appends uptime, wake-cycle count, buffer state and the panel
-// min/mean/max profile after schema 1's 22 bytes. The decoder keys on byte 0
-// and keeps decoding schema-1 captures.
-#define DIAG_VERBOSE_SCHEMA 2
-#define DIAG_VERBOSE_LEN    34
+// min/mean/max profile after schema 1's 22 bytes. Schema 3 appends the 3-byte
+// firmware git hash (bytes 34-36), injected at compile time by
+// scripts/build.sh -- 0x000000 means an unofficial build (compiled without the
+// script, hash unknown). The decoder keys on byte 0 and keeps decoding every
+// older schema.
+#define DIAG_VERBOSE_SCHEMA 3
+#define DIAG_VERBOSE_LEN    37
+#define DIAG_VERBOSE_V2_LEN 34
 #define DIAG_VERBOSE_V1_LEN 22
 
 // Extra info bits used only by the verbose frame (bytes 0-4 of the info byte are
@@ -308,6 +312,16 @@ struct VerboseSnapshot {
   uint8_t  uplinkCounter;         // 4-bit wire counter (low nibble of byte 28)
   const PanelStats *panelStats;   // nullptr or n==0 -> stats bytes zero,
                                   // DIAG_INFO_PANEL_STATS clear
+
+  // ---- schema 3 ----
+  uint32_t gitHash24;             // low 24 bits = first 6 hex chars of the
+                                  // commit this binary was built from;
+                                  // 0x000000 = unofficial build (decoder
+                                  // reports null). Ties every frame to an
+                                  // exact source state -- this week's defect
+                                  // hunts repeatedly needed "which firmware is
+                                  // this device actually running?" answered
+                                  // from the wire, not from memory.
 };
 
 // Serialise the verbose frame. Returns DIAG_VERBOSE_LEN. Byte map documented in
@@ -318,6 +332,7 @@ struct VerboseSnapshot {
 //   28     (ramCount & 0x0F) << 4 | (uplinkCounter & 0x0F)
 //   29-31  panel current min / mean / max, 0.5 mA/LSB
 //   32-33  panel bus min / max, 30 mV/LSB
+//   34-36  firmware git hash, 24 bits big-endian (0 = unofficial build)
 inline uint8_t diagEncodeVerbose(uint8_t *buf, const VerboseSnapshot *v) {
   bool statsValid = v->panelStats != 0 && v->panelStats->n > 0;
   buf[0] = DIAG_VERBOSE_SCHEMA;
@@ -362,6 +377,9 @@ inline uint8_t diagEncodeVerbose(uint8_t *buf, const VerboseSnapshot *v) {
   } else {
     buf[29] = buf[30] = buf[31] = buf[32] = buf[33] = 0;
   }
+  buf[34] = (uint8_t)((v->gitHash24 >> 16) & 0xFF);
+  buf[35] = (uint8_t)((v->gitHash24 >> 8) & 0xFF);
+  buf[36] = (uint8_t)(v->gitHash24 & 0xFF);
   return DIAG_VERBOSE_LEN;
 }
 
