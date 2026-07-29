@@ -98,6 +98,64 @@ console.log("\nv7 decoder -- clarity does NOT depend on the device clock");
   check("clock invalid: expected_daylight_fraction present", typeof r.data.expected_daylight_fraction === "number");
 }
 
+console.log("\nv7 decoder -- verbose schema 2 (item 25) + clarity convergence gate (24b)");
+{
+  // Build a 34-byte schema-2 frame field by field, mirroring diagEncodeVerbose.
+  const mk = (uptimeS, statsBit) => {
+    const b = new Array(34).fill(0);
+    b[0] = 2;                                    // schema
+    b[1] = 0x01 | 0x02 | 0x08 | 0x10 | (statsBit ? 0x80 : 0);  // SOLAR|DEV|CLOCK|SEEN|STATS
+    b[2] = 0x01; b[3] = 1; b[4] = 5;             // rc, boot, interval 5 (60 min)
+    b[5] = (2 & 3) | ((1 & 3) << 2);             // Summer, band 1
+    b[6] = 0x0E; b[7] = 0xD2;                    // battery 3794
+    b[8] = 0x0F; b[9] = 0x4C;                    // panel 3916
+    b[10] = 0x00; b[11] = 0xDC;                  // 22.0 mA (0.1 mA/LSB)
+    b[12] = 128;                                 // ewma ~0.502
+    b[13] = 0x00; b[14] = 0xAA;                  // harvest 170
+    b[15] = 0x39; b[16] = 0x9F;                  // probe config
+    b[17] = 1;                                   // ds18
+    b[18] = 0x08; b[19] = 0x34;                  // 21.00 C
+    b[20] = 0; b[21] = 0;                        // faults
+    b[22] = (uptimeS >>> 24) & 0xFF; b[23] = (uptimeS >>> 16) & 0xFF;
+    b[24] = (uptimeS >>> 8) & 0xFF;  b[25] = uptimeS & 0xFF;
+    b[26] = 0; b[27] = 25;                       // cycle count
+    b[28] = (4 << 4) | 9;                        // ramCount 4, uplinkCounter 9
+    if (statsBit) { b[29] = 5; b[30] = 25; b[31] = 44; b[32] = 120; b[33] = 130; }
+    return b;
+  };
+
+  // Young EWMA (2 h): clarity suppressed, flagged converging.
+  const young = decode({ bytes: mk(7200, true), fPort: 3, recvTime: RECV });
+  check("schema2: decodes without errors", young.errors.length === 0);
+  check("schema2: uptime_s 7200", young.data.uptime_s === 7200);
+  check("schema2: cycle_count 25", young.data.cycle_count === 25);
+  check("schema2: ram_count 4 / uplink_counter 9",
+        young.data.ram_count === 4 && young.data.uplink_counter === 9);
+  check("schema2: panel profile decoded (2.5/12.5/22 mA)",
+        young.data.panel_ma_min === 2.5 && young.data.panel_ma_mean === 12.5 &&
+        young.data.panel_ma_max === 22);
+  check("schema2: panel v min/max (3.6/3.9 V)",
+        young.data.panel_v_min === 3.6 && young.data.panel_v_max === 3.9);
+  check("24b: uptime < TAU -> clarity null", young.data.clarity === null);
+  check("24b: ...and flagged converging", young.data.clarity_converging === true);
+  check("24b: expected_daylight_fraction still emitted",
+        typeof young.data.expected_daylight_fraction === "number");
+
+  // Converged EWMA (25 h): clarity computed.
+  const old = decode({ bytes: mk(90000, true), fPort: 3, recvTime: RECV });
+  check("24b: uptime >= TAU -> clarity computed", typeof old.data.clarity === "number");
+  check("24b: ...and not flagged converging", old.data.clarity_converging === false);
+
+  // Stats bit clear: profile fields are null, not zero.
+  const noStats = decode({ bytes: mk(90000, false), fPort: 3, recvTime: RECV });
+  check("schema2: stats bit clear -> profile nulls",
+        noStats.data.panel_ma_min === null && noStats.data.panel_v_max === null);
+
+  // Wrong length for the declared schema is rejected loudly.
+  check("schema2: 22 bytes with schema byte 2 errors",
+        decode({ bytes: mk(7200, true).slice(0, 22), fPort: 3, recvTime: RECV }).errors.length > 0);
+}
+
 console.log("\nv7 decoder -- no recvTime -> clarity null (the only real dependency)");
 {
   const b2 = ((900 & 0x0f) << 4) | 0;

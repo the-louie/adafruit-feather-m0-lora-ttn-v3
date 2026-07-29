@@ -41,8 +41,22 @@ const DIAG_FPORT_DEV = 2;
 const DIAG_PAYLOAD_LEN = 11;
 
 // Verbose DEV diagnostics ("all-clear" full-state snapshot), DEV-only, FPort 3.
+// Schema 1 = 22 bytes; schema 2 (2026-07-29) appends uptime, cycle count,
+// buffer state and the panel min/mean/max profile. Both decode -- old captures
+// stay readable.
 const VERBOSE_FPORT_DEV = 3;
-const VERBOSE_PAYLOAD_LEN = 22;
+const VERBOSE_V1_LEN = 22;
+const VERBOSE_V2_LEN = 34;
+
+// The sun EWMA's time constant (solar_signal.h: SUN_EWMA_TAU_S). clarity is
+// sun_ewma normalised by expected daylight, and the EWMA needs roughly one
+// time constant of history before that ratio means anything -- a device booted
+// hours ago reports a low ratio that reads as a shaded panel (TODO 24b; the
+// live fixture's clarity 0.006 at f_cnt=0 is this exact artefact, preserved
+// as a reminder). Schema-2 frames carry uptime, so the gate is exact there;
+// data frames carry no age field, so they stay ungated -- the backend, which
+// has history, is the right place for that gate (TODO item 10).
+const EWMA_TAU_S = 86400;
 // Order matches season.h SeasonState: WINTER=0, MID=1, SUMMER=2.
 const SEASON_NAMES = ["Winter", "Fall/Spring", "Summer"];
 
@@ -118,14 +132,15 @@ function decodeDiagnostic(bytes, fPort) {
 }
 
 // Verbose DEV snapshot (FPort 3). Mirrors diagnostics.h diagEncodeVerbose().
-function decodeVerbose(bytes) {
+function decodeVerbose(bytes, recvTime) {
   const data = {}, warnings = [], errors = [];
-  if (bytes.length !== VERBOSE_PAYLOAD_LEN) {
-    errors.push(`verbose FPort ${VERBOSE_FPORT_DEV} expects ${VERBOSE_PAYLOAD_LEN} bytes, got ${bytes.length}`);
+  const schema = bytes.length >= 1 ? bytes[0] : 0;
+  const expectedLen = schema >= 2 ? VERBOSE_V2_LEN : VERBOSE_V1_LEN;
+  if (bytes.length !== expectedLen) {
+    errors.push(`verbose FPort ${VERBOSE_FPORT_DEV} schema ${schema} expects ${expectedLen} bytes, got ${bytes.length}`);
     return { data: {}, warnings, errors };
   }
-  const schema = bytes[0];
-  if (schema !== 1) warnings.push(`unknown verbose schema ${schema}; decoding as v1`);
+  if (schema !== 1 && schema !== 2) warnings.push(`unknown verbose schema ${schema}; decoding as v2`);
   const info = bytes[1];
   data.version = FIRMWARE_VERSION;
   data.frame = "verbose";
@@ -166,6 +181,46 @@ function decodeVerbose(bytes) {
   data.faults = namesForBits(faultBits, DIAG_FAULT_NAMES);
   data.healthy = faultBits === 0;
 
+  if (schema >= 2) {
+    data.uptime_s = ((bytes[22] << 24) >>> 0) + (bytes[23] << 16) + (bytes[24] << 8) + bytes[25];
+    data.uptime_h = Number((data.uptime_s / 3600).toFixed(2));
+    data.cycle_count = (bytes[26] << 8) | bytes[27];
+    data.ram_count = (bytes[28] >> 4) & 0x0F;
+    data.uplink_counter = bytes[28] & 0x0F;
+
+    // Panel profile since the previous verbose frame (min/mean/max), or nulls
+    // when nothing was accumulated (primary variant, or the frame at boot).
+    if (info & 0x80) {
+      data.panel_ma_min  = Number((bytes[29] * 0.5).toFixed(1));
+      data.panel_ma_mean = Number((bytes[30] * 0.5).toFixed(1));
+      data.panel_ma_max  = Number((bytes[31] * 0.5).toFixed(1));
+      data.panel_v_min   = Number((bytes[32] * 0.03).toFixed(2));
+      data.panel_v_max   = Number((bytes[33] * 0.03).toFixed(2));
+    } else {
+      data.panel_ma_min = data.panel_ma_mean = data.panel_ma_max = null;
+      data.panel_v_min = data.panel_v_max = null;
+    }
+
+    // Clarity with the convergence gate (TODO 24b): this frame carries both
+    // the EWMA and its age, so the ratio is only emitted once the EWMA has
+    // ~one time constant (24 h) of history. Uptime under-estimates the age
+    // after a warm reset (the EWMA is restored, uptime is not), so the gate
+    // errs toward suppressing -- conservative by design.
+    if (recvTime) {
+      const frac = expectedDaylightFraction(new Date(recvTime), SITE_LATITUDE_DEG);
+      data.expected_daylight_fraction = Number(frac.toFixed(3));
+      if (data.uptime_s >= EWMA_TAU_S) {
+        data.clarity = frac > 0 ? Number((data.sun_ewma / frac).toFixed(3)) : null;
+        data.clarity_converging = false;
+      } else {
+        data.clarity = null;
+        data.clarity_converging = true;
+      }
+    } else {
+      data.clarity = null;
+    }
+  }
+
   return { data, warnings, errors };
 }
 
@@ -198,7 +253,7 @@ function decodeUplink(input) {
     return decodeDiagnostic(bytes, fPort);
   }
   if (fPort === VERBOSE_FPORT_DEV) {
-    return decodeVerbose(bytes);
+    return decodeVerbose(bytes, input.recvTime);
   }
 
   const isSolar = (fPort === 11 || fPort === 21);
