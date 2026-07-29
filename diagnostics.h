@@ -195,9 +195,9 @@ inline void diagMarkSent(uint16_t *lastSentFaults, uint32_t *lastSentEpoch,
 // never spends airtime/battery in the field. Battery is deliberately not a
 // concern in DEV, so it goes out on a fixed cadence with no rate/fault gating.
 // ---------------------------------------------------------------------------
-// Schema 2 (2026-07-29, item 25): appends uptime, wake-cycle count, buffer
-// state and the panel min/mean/max profile after schema 1's 22 bytes. The
-// decoder keys on byte 0 and keeps decoding schema-1 captures.
+// Schema 2 appends uptime, wake-cycle count, buffer state and the panel
+// min/mean/max profile after schema 1's 22 bytes. The decoder keys on byte 0
+// and keeps decoding schema-1 captures.
 #define DIAG_VERBOSE_SCHEMA 2
 #define DIAG_VERBOSE_LEN    34
 #define DIAG_VERBOSE_V1_LEN 22
@@ -278,11 +278,11 @@ struct VerboseSnapshot {
   uint8_t  bootCounter;
   uint8_t  intervalIndex;         // 0..10
   uint8_t  seasonState;           // season.h SeasonState: 0 WINTER, 1 MID, 2 SUMMER.
-                                  // (This comment previously said the opposite --
-                                  // the exact inversion that shipped as the
-                                  // decoder bug fixed in 8dc181f. season.h is
-                                  // the authority; never restate the order from
-                                  // memory.)
+                                  // season.h is the sole authority on this order;
+                                  // a restated copy once shipped inverted as a
+                                  // decoder defect, so verify against the enum
+                                  // rather than trusting any comment, including
+                                  // this one.
   uint8_t  voltageBand;           // 0..3
   uint16_t batteryMv;
   uint16_t panelBusMv;
@@ -373,4 +373,17 @@ inline bool verboseShouldSend(bool isDev, bool sentOnce, uint32_t nowMs,
   if (!isDev) return false;
   if (!sentOnce) return true;
   return (uint32_t)(nowMs - lastMs) >= intervalMs;
+}
+
+// May another verbose ATTEMPT be made yet? Distinct from verboseShouldSend,
+// which asks whether a frame is DUE: the due-time only advances on a
+// successful transmit, so after a failed attempt the frame stays due
+// continuously. The caller sits in a busy-wait loop that evaluates every
+// iteration, and one failed attempt can block for the full TX-ready budget,
+// so without a spacing rule a wedged radio stack turns the whole wait window
+// into consecutive blocked attempts. Unsigned subtraction, wrap-safe.
+inline bool verboseRetryAllowed(bool anyAttemptMade, uint32_t nowMs,
+                                uint32_t lastAttemptMs, uint32_t backoffMs) {
+  if (!anyAttemptMade) return true;
+  return (uint32_t)(nowMs - lastAttemptMs) >= backoffMs;
 }

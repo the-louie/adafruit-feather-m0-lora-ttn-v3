@@ -194,6 +194,15 @@ int main() {
   check(verboseShouldSend(true, true, 3600000u, 0xFFFFFFFFu - 1000u, 3600000u),
         "verbose: wrap, >=interval elapsed -> sends");
 
+  // Attempt spacing: due is not the same as allowed. The due-time advances only
+  // on success, so a failed attempt stays due continuously, and the evaluator
+  // runs from a busy-wait loop.
+  check(verboseRetryAllowed(false, 0, 0, 300000u), "retry: first attempt always allowed");
+  check(!verboseRetryAllowed(true, 100000u, 50000u, 300000u), "retry: within backoff suppressed");
+  check(verboseRetryAllowed(true, 350000u, 50000u, 300000u), "retry: after backoff allowed");
+  check(verboseRetryAllowed(true, 200000u, 0xFFFFFFFFu - 100000u, 300000u),
+        "retry: wrap-safe (300s elapsed across the wrap)");
+
   {
     VerboseSnapshot v{};
     v.isSolar=true; v.isDev=true; v.coldBoot=true; v.clockValid=true; v.ina219Present=true;

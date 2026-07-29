@@ -151,10 +151,9 @@ static PowerPolicy *policy = &primaryPolicy;
 static PowerVariant powerVariant = VARIANT_PRIMARY;
 static Adafruit_INA219 ina219;   // only used on the solar variant
 
-// The solar EWMA/harvest dt is the interval we just slept (readAndBufferSensors)
-// -- NOT wall-clock: millis() does not advance through deep sleep, and elapsed
-// seconds is all the EWMA needs. (A lastWakeMillis variable for this was
-// declared but never used; removed 2026-07-28.)
+// The solar EWMA/harvest dt is the interval we just slept (readAndBufferSensors),
+// NOT wall-clock time: millis() does not advance through deep sleep, and elapsed
+// seconds is all the EWMA needs.
 //
 // True until the first sensor read of this boot has been taken. That first read
 // has NOT slept: setup() fills sleepIntervalSeconds from the restored interval
@@ -235,6 +234,15 @@ static bool     verboseSentOnce = false;
 static uint32_t   lastPanelSampleMillis = 0;
 static PanelStats g_panelStats;          // reset after each verbose TX
 static uint16_t   g_cycleCount = 0;      // wake cycles (sensor reads) since boot
+
+// Spacing between verbose ATTEMPTS. The due-time (lastVerboseMillis) advances
+// only on success, and the sleep loop evaluates every iteration, so a failed
+// attempt would otherwise retry immediately, each retry blocking for up to
+// TX_READY_WAIT_MS. Five minutes keeps a wedged stack at ~2% blocking duty
+// while still retrying far sooner than the next wake would.
+#define VERBOSE_RETRY_BACKOFF_MS 300000UL
+static bool     verboseAttemptMade = false;
+static uint32_t lastVerboseAttemptMillis = 0;
 
 // Batch buffer: newest at index 0. Each entry 2 bytes (int16)
 static uint16_t dataBuffer[MAX_BATCH];
@@ -346,6 +354,38 @@ static bool ina219ReadBusRaw(uint16_t *out) {
   uint16_t lo = Wire.read();
   *out = (uint16_t)((hi << 8) | lo);
   return true;
+}
+
+// Wake the INA219 out of power-down and wait for a conversion that completed
+// AFTER the wake. Returns true when CNVR is seen; the raw bus register and the
+// I2C health of the final read come back through the out-parameters.
+//
+// The wake writes MODE=111, which clears CNVR (a mode write, and not to the
+// excepted power-down/disable values), so a set CNVR below proves a fresh
+// conversion: a blind delay cannot distinguish "converted" from "served the
+// same stale registers", and a powered-down part happily ACKs stale reads
+// forever. Polling reads register 02h, which does not self-clear (only a
+// Power-register read does, and this firmware never reads 03h). Worst-case
+// legitimate conversion is 1.17 ms against the 10 ms budget; if the ADC
+// config ever changes to averaging, a too-short budget FAULTS LOUDLY on every
+// wake instead of silently serving stale data. See ina219_bus.h.
+//
+// The caller decides what a failure means (fault the cycle, or skip a profile
+// sample) and returns the part to power-down with powerSave(true).
+static bool ina219WakeForReading(uint16_t *rawOut, bool *busReadOkOut) {
+  ina219.powerSave(false);
+  uint16_t raw = 0;
+  bool busReadOk = false, convReady = false;
+  uint32_t t0 = millis();
+  do {
+    busReadOk = ina219ReadBusRaw(&raw);
+    convReady = busReadOk && ina219BusConversionReady(raw);
+    if (convReady) break;
+    os_runloop_once();
+  } while (millis() - t0 < INA219_CNVR_TIMEOUT_MS);
+  *rawOut = raw;
+  *busReadOkOut = busReadOk;
+  return convReady;
 }
 
 // DeviceTimeReq reply. Called by LMIC after the RX window (S03-12).
@@ -461,36 +501,14 @@ void readAndBufferSensors() {
     uint16_t busMv = (uint16_t)(adc * (3.3f / 1024.0f) * PANEL_DIV_RATIO * 1000.0f);
     solarPolicy.ingestSample(busMv, 0.0f, batteryMvNow, ingestDt);
 #else
-    // Wake the INA219 from the POWERDOWN commanded below. powerSave(true) stops
-    // conversions entirely, and without this wake the part NEVER converts again:
-    // every later read returns the registers' last pre-powerdown contents.
-    // Observed on gisebo-05 all night 2026-07-27/28 -- panel V/I frozen at
-    // 3.852 V / 15.9 mA from dusk through sunrise, the sun EWMA integrating
-    // "sun present" in the dark, and 192 mAh of harvest that never flowed. See
-    // docs/dev-notes/20260728-1230_ina219-powersave-freeze.md.
-    ina219.powerSave(false);
-    // Gate the read on CNVR (conversion ready) instead of a fixed delay. The
-    // wake above writes MODE=111, which CLEARS CNVR (a mode write, not to the
-    // excepted power-down/disable values), so CNVR set below proves a
-    // conversion completed AFTER the wake -- a blind delay cannot distinguish
-    // "converted" from "served the same stale registers", which is precisely
-    // how a whole night of frozen telemetry looked healthy. Polling reads reg
-    // 02h, which does NOT self-clear (only a Power-register read does, and
-    // this firmware never reads 03h). Worst-case legit conversion is 1.17 ms;
-    // the 10 ms budget sits inside the DS18B20 window, so it costs nothing.
-    // If the ADC config ever changes, a too-short budget FAULTS LOUDLY every
-    // wake instead of silently reading stale data. See ina219_bus.h.
+    // Wake the part and require a fresh conversion (CNVR) before trusting the
+    // registers: a powered-down INA219 serves its stale contents forever, which
+    // is how plausible-but-frozen panel telemetry once passed for healthy all
+    // night (docs/dev-notes/20260728-1230_ina219-powersave-freeze.md). The
+    // mechanics and the datasheet reasoning live in ina219WakeForReading().
     uint16_t rawBus = 0;
-    bool busReadOk = false, convReady = false;
-    {
-      uint32_t inaWake = millis();
-      do {
-        busReadOk = ina219ReadBusRaw(&rawBus);
-        convReady = busReadOk && ina219BusConversionReady(rawBus);
-        if (convReady) break;
-        os_runloop_once();
-      } while (millis() - inaWake < INA219_CNVR_TIMEOUT_MS);
-    }
+    bool busReadOk = false;
+    bool convReady = ina219WakeForReading(&rawBus, &busReadOk);
     uint16_t busMv = ina219BusMillivolts(rawBus);
     bool ovf = busReadOk && ina219BusOverflow(rawBus);
     // success() reflects only the MOST RECENT register read, so it is sampled
@@ -661,7 +679,7 @@ void transmitBatchAndWait() {
     // on the 8th and 9th boots of a session chain. g_coldBoot is the exact fact
     // (persist was NOT restored). The two flags are complementary on purpose:
     // every boot is exactly one of cold (persist lost) or soft (persist
-    // survived a reset). 2026-07-28 review, wrapping-counter class.
+    // survived a reset).
     if (g_coldBoot)  flags |= STATUS_COLD_BOOT;
     else             flags |= STATUS_SOFT_RESET;
     // The pending-uplink-failure latch, so PROD data frames carry the fault the
@@ -928,16 +946,9 @@ static void samplePanelForStats() {
                 (uint16_t)(adc * (3.3f / 1024.0f) * PANEL_DIV_RATIO * 1000.0f),
                 0.0f);
 #else
-  ina219.powerSave(false);
   uint16_t raw = 0;
-  bool ok = false;
-  uint32_t t0 = millis();
-  do {
-    ok = ina219ReadBusRaw(&raw) && ina219BusConversionReady(raw);
-    if (ok) break;
-    os_runloop_once();
-  } while (millis() - t0 < INA219_CNVR_TIMEOUT_MS);
-  if (ok) {
+  bool busReadOk = false;
+  if (ina219WakeForReading(&raw, &busReadOk)) {
     float ma = ina219.getCurrent_mA();
     if (ina219.success()) {
       panelStatsAdd(&g_panelStats, ina219BusMillivolts(raw), ma);
@@ -957,6 +968,15 @@ static void evaluateAndMaybeSendVerbose() {
                          lastVerboseMillis, VERBOSE_INTERVAL_MS)) {
     return;
   }
+  // Due is not the same as allowed: after a failed attempt the frame stays due,
+  // and this evaluator runs from every sleep-loop iteration, so attempts need
+  // their own spacing or a wedged stack blocks the whole window back to back.
+  if (!verboseRetryAllowed(verboseAttemptMade, millis(),
+                           lastVerboseAttemptMillis, VERBOSE_RETRY_BACKOFF_MS)) {
+    return;
+  }
+  verboseAttemptMade = true;
+  lastVerboseAttemptMillis = millis();
   VerboseSnapshot v; gatherVerbose(&v);
   uint8_t payload[DIAG_VERBOSE_LEN];
   diagEncodeVerbose(payload, &v);
