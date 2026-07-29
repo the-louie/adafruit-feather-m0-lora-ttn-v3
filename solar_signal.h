@@ -7,19 +7,37 @@
 // the numbers.
 //
 // ---------------------------------------------------------------------------
-// Why bus VOLTAGE, not current
+// Why sun-present needs TWO arms (voltage alone failed on real hardware)
 // ---------------------------------------------------------------------------
 //
-// The INA219 sits in the charging path and measures HARVESTED current, not
-// available sunlight. When the pack is full the charger terminates and current
-// collapses to ~0 -- in full summer sun. With the claimed surplus that is most
-// of the summer. So a full pack in bright sun looks identical to darkness if you
-// read current.
+// The original design keyed on bus voltage alone, sun_present = (bus > 3000 mV),
+// reasoning that current cannot be trusted: when the pack is full the charger
+// terminates and current collapses to ~0 in full summer sun. That half was
+// right -- charge termination was OBSERVED (boot 2026-07-28 14:05: 0 mA with
+// the bus at panel Voc, 5.10 V, battery 4.16 V).
 //
-// Panel BUS VOLTAGE does not have this problem: at night the panel is dark, the
-// Schottky blocks, and the bus sits near 0 V; whenever there is sun the bus reads
-// either the charger's operating point (~4.5-5 V) or, once charge terminates, the
-// panel's open-circuit voltage. So sun_present = (bus_mV > threshold).
+// The voltage half was wrong, and the first honest night proved it
+// (2026-07-28/29, ttn-captures/gisebo05-ttn-20260729-morning.jsonl): at night
+// the bus does NOT sit near 0 V. The charger input node back-feeds from the
+// pack, and the bus read battery - ~180 mV (~3.57-3.61 V) from dusk to dawn.
+// A li-ion pack cannot go below ~3.4 V with the Feather alive, so an absolute
+// 3000 mV floor was STRUCTURALLY unreachable: sunPresent() held true through
+// eight hours of darkness and the EWMA rose 0.255 -> 0.529 overnight -- the
+// same poisoning as the frozen-sensor defect, from an honest sensor.
+//
+// The measured table also kills the two one-arm fixes:
+//   * absolute threshold above 4.2 V: misses every observed charging point
+//     (bus 3.57-3.99 V while current flows)
+//   * pure relative (bus > battery + margin): fails low light -- 18:07 had
+//     11.6 mA FLOWING with the bus 90 mV BELOW the battery, and dawn charging
+//     runs ~180 mV below
+//
+// So: EITHER arm proves sun.
+//   current arm   -- covers every charging case, including bus-below-battery
+//                    low light (11.6, 2.4, 1-2 mA all measured)
+//   relative arm  -- covers the one case current cannot: charge termination,
+//                    0 mA by design with the bus at Voc (+940 mV over battery)
+// Night fails both: 0 mA, bus ~180 mV BELOW battery.
 //
 // ---------------------------------------------------------------------------
 // Why the window is TIME-based, not wake-based
@@ -36,16 +54,32 @@
 #include <stdint.h>
 #include <math.h>
 
-// Bus voltage above this means the panel is lit. 3000 mV sits well above the
-// night level (~0 V) and below any daytime operating point.
-#define SUN_PRESENT_MV 3000
+// Current arm: any measurable charge current proves sun. 1 mA sits well above
+// the INA219's noise floor (0.1 mA/LSB at our calibration) and well below the
+// weakest charging ever observed (1-2 mA at dawn/dusk).
+#define SUN_CURRENT_MA 1.0f
+
+// Relative arm: bus meaningfully ABOVE the battery proves the panel is driving
+// the node. 150 mV sits between the tightest observed night offset (bus at
+// battery MINUS 169 mV, dusk) and charge termination (bus at battery + 940 mV).
+// The margin does not need to cover active charging (+122/+9/-90 mV observed)
+// -- the current arm owns those.
+#define SUN_BUS_ABOVE_BATT_MV 150u
 
 // EWMA time constant: 24 h. Long enough to average a full day/night cycle, short
 // enough to track weather over a few days.
 #define SUN_EWMA_TAU_S 86400.0f
 
-inline bool sunPresent(uint16_t busMillivolts) {
-  return busMillivolts > SUN_PRESENT_MV;
+// Either arm proves sun; night fails both. The battery reading comes from the
+// same wake's A7 measurement, so both voltages see the same conditions.
+//
+// SOLAR_NO_INA219 bench note: with no shunt the caller passes currentMa = 0, so
+// the current arm is always false and the relative arm alone decides -- which
+// works on the bench divider, where the node genuinely reads ~0 V at night.
+inline bool sunPresent(uint16_t busMillivolts, float currentMa,
+                       uint16_t batteryMillivolts) {
+  if (currentMa >= SUN_CURRENT_MA) return true;
+  return busMillivolts > (uint32_t)batteryMillivolts + SUN_BUS_ABOVE_BATT_MV;
 }
 
 // Decay the sun-presence EWMA by real elapsed seconds.

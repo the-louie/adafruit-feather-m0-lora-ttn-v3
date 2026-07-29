@@ -22,13 +22,31 @@ int main() {
   std::printf("\nsolar_signal -- EWMA, bonus gate, harvest\n");
 
   // -------------------------------------------------------------------------
-  // 1. sun_present threshold.
+  // 1. sun_present: the two-arm predicate, pinned to the MEASURED vectors from
+  //    the first honest night (2026-07-28/29). The old absolute 3000 mV floor
+  //    was structurally unreachable -- the night bus back-feeds to battery -
+  //    ~180 mV (~3.6 V) -- and every vector below is from the wire.
   // -------------------------------------------------------------------------
-  check(!sunPresent(0),    "0 mV (night) -> not present");
-  check(!sunPresent(3000), "3000 mV -> not present (strictly above)");
-  check(sunPresent(3001),  "3001 mV -> present");
-  check(sunPresent(4700),  "4700 mV (charger operating point) -> present");
-  check(sunPresent(6000),  "6000 mV (panel Voc, charge terminated) -> present");
+  // The night that exposed the defect: 0 mA, bus 178 mV BELOW battery.
+  check(!sunPresent(3604, 0.0f, 3782), "night: 0 mA, bus at batt-178 mV -> DARK");
+  check(!sunPresent(3568, 0.0f, 3753), "deep night: 0 mA, batt-185 mV -> DARK");
+  // The row that kills a pure relative test: current flowing, bus BELOW batt.
+  check(sunPresent(3704, 11.6f, 3794), "low sun: 11.6 mA at batt-90 mV -> SUN (current arm)");
+  check(sunPresent(3624, 2.4f, 3793),  "dusk: 2.4 mA at batt-169 mV -> SUN (current arm)");
+  check(sunPresent(3568, 1.0f, 3749),  "dawn: exactly 1.0 mA -> SUN (current arm, inclusive)");
+  // The row that kills a pure current test: charge terminated, 0 mA in sun.
+  check(sunPresent(5100, 0.0f, 4161),  "terminated: 0 mA at Voc, batt+939 mV -> SUN (relative arm)");
+  // Active strong charging (either arm would do; current arm owns it).
+  check(sunPresent(3916, 22.0f, 3794), "strong charge: 22 mA, batt+122 mV -> SUN");
+  // Margin edges of the relative arm (strictly above batt + 150).
+  check(!sunPresent(3850, 0.0f, 3700), "0 mA at exactly batt+150 -> dark (strict >)");
+  check(sunPresent(3851, 0.0f, 3700),  "0 mA at batt+151 -> sun");
+  // Current just below the arm's floor must fall through to the relative arm.
+  check(!sunPresent(3604, 0.9f, 3782), "0.9 mA noise at batt-178 -> dark (below current arm)");
+  // Bench build (SOLAR_NO_INA219): currentMa always 0, relative arm decides;
+  // the divider node genuinely reads ~0 V at night.
+  check(!sunPresent(0, 0.0f, 3700),    "bench night: 0 mV vs 3.7 V batt -> dark");
+  check(sunPresent(6000, 0.0f, 3700),  "bench day: 6 V divider vs 3.7 V batt -> sun");
 
   // -------------------------------------------------------------------------
   // 2. EWMA basics.

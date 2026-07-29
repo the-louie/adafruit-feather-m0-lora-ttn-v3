@@ -53,10 +53,14 @@ public:
 
   // Fed by the .ino inside the Dallas window, after the INA219 read.
   // Pure: updates the EWMA, the harvest accumulator, and the latched bonus.
-  void ingestSample(uint16_t busMv, float currentMa, uint32_t dtSeconds) {
+  // batteryMv feeds the sun predicate's relative arm (solar_signal.h) -- the
+  // night bus back-feeds to battery - ~180 mV, so "lit" is only decidable
+  // against the battery, not against an absolute threshold.
+  void ingestSample(uint16_t busMv, float currentMa, uint16_t batteryMv,
+                    uint32_t dtSeconds) {
     lastBusMv_ = busMv;
     lastCurrentMa_ = currentMa;
-    ewma_ = sunEwmaUpdate(ewma_, sunPresent(busMv), dtSeconds);
+    ewma_ = sunEwmaUpdate(ewma_, sunPresent(busMv, currentMa, batteryMv), dtSeconds);
     bonusActive_ = sunBonusActive(ewma_, bonusActive_);
     harvestAdd(&harvest_, currentMa, dtSeconds);
   }

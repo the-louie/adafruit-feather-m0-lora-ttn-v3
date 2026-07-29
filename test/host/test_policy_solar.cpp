@@ -103,13 +103,15 @@ int main() {
     SolarPolicy p; p.begin();
     check(p.ewma_ == 0.0f && !p.bonusActive_, "starts dark, bonus off");
     // Feed many sunny samples: EWMA climbs, bonus eventually latches.
-    for (int i = 0; i < 200; i++) p.ingestSample(4700, 25.0f, 1800);  // 30-min sunny wakes
+    for (int i = 0; i < 200; i++) p.ingestSample(4700, 25.0f, 3700, 1800);  // 30-min sunny wakes
     check(p.ewma_ > 0.9f, "sustained sun -> EWMA climbs above 0.9");
     check(p.bonusActive_, "sustained sun -> bonus latches on");
     check(p.harvest_.totalMah > 0, "harvest accumulates from the current");
 
-    // Now go dark: EWMA falls, bonus eventually releases.
-    for (int i = 0; i < 200; i++) p.ingestSample(0, 0.0f, 1800);
+    // Now go dark -- with the REAL night signature (bus back-feeds to
+    // battery - ~180 mV, NOT 0 V; measured 2026-07-28/29). Under the old
+    // absolute threshold this exact input could never read as dark.
+    for (int i = 0; i < 200; i++) p.ingestSample(3570, 0.0f, 3750, 1800);
     check(p.ewma_ < 0.45f, "sustained dark -> EWMA falls below the release threshold");
     check(!p.bonusActive_, "sustained dark -> bonus releases");
   }
@@ -122,8 +124,8 @@ int main() {
     SolarPolicy p; p.begin();
     p.ewma_ = 0.6f;   // recently sunny
     // Full pack in bright sun: charger terminated, current 0, bus at panel Voc.
-    p.ingestSample(6000, 0.0f, 1800);
-    check(sunPresent(6000), "6000 mV bus with 0 mA still reads sun_present");
+    p.ingestSample(6000, 0.0f, 4100, 1800);
+    check(sunPresent(6000, 0.0f, 4100), "Voc bus with 0 mA still reads sun_present (relative arm)");
     check(p.ewma_ >= 0.6f, "charge-terminated sample keeps the EWMA up (not dragged to 0)");
   }
 
@@ -179,12 +181,12 @@ int main() {
   // -------------------------------------------------------------------------
   {
     SolarPolicy p; p.begin();
-    for (int i = 0; i < 20; i++) p.ingestSample(4700, 25.0f, 3600);  // build real state
+    for (int i = 0; i < 20; i++) p.ingestSample(4700, 25.0f, 3700, 3600);  // build real state
     const float    ewmaBefore    = p.ewma_;
     const uint16_t harvestBefore = p.harvest_.totalMah;
     const bool     bonusBefore   = p.bonusActive_;
 
-    p.ingestSample(4700, 25.0f, 0);   // a "sample" covering no elapsed time
+    p.ingestSample(4700, 25.0f, 3700, 0);   // a "sample" covering no elapsed time
 
     check(p.ewma_ == ewmaBefore, "dt=0: EWMA unchanged");
     check(p.harvest_.totalMah == harvestBefore, "dt=0: harvest total unchanged");
@@ -192,12 +194,12 @@ int main() {
 
     // ...and it must not quietly bank a sub-mAh remainder either, or repeated
     // boots would still drift the accumulator upward one fraction at a time.
-    for (int i = 0; i < 50; i++) p.ingestSample(4700, 25.0f, 0);
+    for (int i = 0; i < 50; i++) p.ingestSample(4700, 25.0f, 3700, 0);
     check(p.harvest_.totalMah == harvestBefore, "dt=0 x50: harvest still unchanged");
 
     // The live readings must still land, so the payload/verbose frame reports
     // the panel state from a boot's first read even though it credits no time.
-    p.ingestSample(3300, 7.5f, 0);
+    p.ingestSample(3300, 7.5f, 3700, 0);
     check(p.lastBusMv_ == 3300, "dt=0: bus voltage still recorded");
     check(p.lastCurrentMa_ == 7.5f, "dt=0: current still recorded");
   }

@@ -403,11 +403,12 @@ void readAndBufferSensors() {
   // remaining delay rather than extending the wake.
   policy->onWake();
   if (powerVariant == VARIANT_SOLAR) {
-    // Bus voltage is measured load-side, so a full pack in bright sun (charger
-    // terminated) reads panel Voc rather than ~0 -- which is why the signal keys
-    // on voltage, not current. dt is the interval we just slept: millis() does
-    // not advance through deep sleep, and it is the elapsed time that the EWMA
-    // needs, not a wall-clock instant.
+    // The sun predicate takes bus voltage, current AND battery voltage -- the
+    // night bus back-feeds from the pack to battery - ~180 mV, so "lit" is only
+    // decidable relative to the battery or by measurable charge current (either
+    // arm; solar_signal.h has the measured table). dt is the interval we just
+    // slept: millis() does not advance through deep sleep, and it is the
+    // elapsed time that the EWMA needs, not a wall-clock instant.
     //
     // ...except on the FIRST read of a boot, which slept for nothing at all:
     // setup() fills sleepIntervalSeconds from the restored interval index before
@@ -427,11 +428,14 @@ void readAndBufferSensors() {
     // path that must work before the clock is valid.
     // See docs/dev-notes/20260728-2000_first-sample-dt-and-tx-ready-wait.md.
     const uint32_t ingestDt = firstSampleAfterBoot ? 0 : sleepIntervalSeconds;
+    // Battery reading for the sun predicate's relative arm -- sampled in the
+    // same wake as the bus reading so both see the same conditions.
+    const uint16_t batteryMvNow = (uint16_t)(VBAT_VOLTS() * 1000.0f);
 #ifdef SOLAR_NO_INA219
     // Bus voltage from the divider; no shunt, so current (harvest) is 0.
     uint16_t adc = analogRead(PANEL_ADC_PIN);
     uint16_t busMv = (uint16_t)(adc * (3.3f / 1024.0f) * PANEL_DIV_RATIO * 1000.0f);
-    solarPolicy.ingestSample(busMv, 0.0f, ingestDt);
+    solarPolicy.ingestSample(busMv, 0.0f, batteryMvNow, ingestDt);
 #else
     // Wake the INA219 from the POWERDOWN commanded below. powerSave(true) stops
     // conversions entirely, and without this wake the part NEVER converts again:
@@ -484,7 +488,7 @@ void readAndBufferSensors() {
     // IS the sun signal working.
     g_ina219ReadOk = ina219LiveReadOk(busReadOk, convReady, currentOk, busMv);
     if (g_ina219ReadOk) {
-      solarPolicy.ingestSample(busMv, currentMa, ingestDt);
+      solarPolicy.ingestSample(busMv, currentMa, batteryMvNow, ingestDt);
     }
     // else: do NOT ingest. Feeding unconverted/garbage values to the EWMA and
     // harvest is exactly the overnight failure this gate exists to stop; the
