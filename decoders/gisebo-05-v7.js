@@ -140,7 +140,11 @@ function decodeVerbose(bytes, recvTime) {
     errors.push(`verbose FPort ${VERBOSE_FPORT_DEV} schema ${schema} expects ${expectedLen} bytes, got ${bytes.length}`);
     return { data: {}, warnings, errors };
   }
-  if (schema !== 1 && schema !== 2) warnings.push(`unknown verbose schema ${schema}; decoding as v2`);
+  // An unknown schema decodes as its nearest known layout, chosen by the same
+  // rule as the length check above, and says which one it actually used.
+  if (schema !== 1 && schema !== 2) {
+    warnings.push(`unknown verbose schema ${schema}; decoding as v${schema >= 2 ? 2 : 1}`);
+  }
   const info = bytes[1];
   data.version = FIRMWARE_VERSION;
   data.frame = "verbose";

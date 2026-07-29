@@ -82,13 +82,12 @@ console.log("\nv7 decoder -- the charge-terminated case (must not read as null/d
 
 console.log("\nv7 decoder -- clarity does NOT depend on the device clock");
 {
-  // This assertion was deliberately INVERTED on 2026-07-28. It used to require
-  // clarity === null when the device clock was invalid. That was wrong: clarity
-  // is sun_ewma / expectedDaylightFraction(recvTime, latitude), and neither
-  // operand touches the device RTC -- recvTime is stamped by the network server
-  // and sun_ewma decays against sleepIntervalSeconds. The old gate blanked the
-  // panel-obscured signal for a unit's entire early life. See TODO 24 / dev-note
-  // 20260728-1900_clarity-off-the-device-clock.md.
+  // clarity is sun_ewma / expectedDaylightFraction(recvTime, latitude), and
+  // neither operand touches the device RTC: recvTime is stamped by the network
+  // server, and sun_ewma decays against sleepIntervalSeconds. An invalid device
+  // clock therefore must NOT blank it; gating on the clock would hide the
+  // panel-obscured signal for a unit's entire early life, exactly when a new
+  // deployment needs it. See dev-note 20260728-1910_clarity-off-the-device-clock.md.
   const b2 = ((900 & 0x0f) << 4) | 0;
   const bytes = [2, 900 >> 4, b2, 140, 140, 140, 140, 140, 140,
                  160, 50, 100, 0, 0, 0x00 /*no clock valid*/];
@@ -154,6 +153,13 @@ console.log("\nv7 decoder -- verbose schema 2 (item 25) + clarity convergence ga
   // Wrong length for the declared schema is rejected loudly.
   check("schema2: 22 bytes with schema byte 2 errors",
         decode({ bytes: mk(7200, true).slice(0, 22), fPort: 3, recvTime: RECV }).errors.length > 0);
+
+  // An unknown schema warns with the layout it ACTUALLY used: schema 0 at 22
+  // bytes takes the v1 path, so the warning must not claim v2.
+  const s0 = mk(7200, false).slice(0, 22); s0[0] = 0;
+  const s0r = decode({ bytes: s0, fPort: 3, recvTime: RECV });
+  check("unknown schema 0 decodes via the v1 path with an honest warning",
+        s0r.errors.length === 0 && s0r.warnings.some(w => w.includes("decoding as v1")));
 }
 
 console.log("\nv7 decoder -- no recvTime -> clarity null (the only real dependency)");

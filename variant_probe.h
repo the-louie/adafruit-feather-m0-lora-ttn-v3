@@ -50,11 +50,11 @@
 // Regression on gisebo-05 2026-07-27; see
 // docs/dev-notes/20260727-*_ina219-warm-reset-misdetect.md.
 //
-// NOTE since 007a46b (2026-07-28) the value a warm reset actually leaves behind
-// is 0x0198, not 0x019F: every cycle now ends in powerSave(true), which clears
-// the MODE bits. The soft-reset handles both identically; the constant below is
-// kept at the awake value as the historical regression vector. The full value
-// enumeration lives in docs/ina219-register-reference.md.
+// Between reads the firmware holds the part in power-down (powerSave(true)
+// clears the MODE bits), so the value a warm reset actually leaves behind is
+// 0x0198 rather than 0x019F. The soft reset handles both identically; the
+// constant below is kept at the awake value as the regression vector. The full
+// value enumeration lives in docs/ina219-register-reference.md.
 #define INA219_CONFIG_CALIBRATED_VALUE 0x019F
 
 #define PROBE_ATTEMPTS   3

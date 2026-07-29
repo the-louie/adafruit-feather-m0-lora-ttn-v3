@@ -594,6 +594,25 @@ The `FIRMWARE_VERSION` constant survives this and is still worth having: it is w
 **Estimated time:** 5–7 h
 **Sprint:** 01 (misdetect alarm), 05 (rest)
 
+**2026-07-29 additions from the code review and item 24b.** Two backend
+responsibilities accumulated here because the payload and a stateless TTN
+formatter cannot carry them:
+
+1. **Clarity convergence gating for DATA frames.** Schema-2 verbose frames now
+   gate `clarity` on the device-reported uptime, but data frames (FPort 11/21)
+   carry no age field, so the formatter emits their clarity ungated. The
+   backend has history, so it can apply the same rule: suppress or flag
+   clarity for ~24 h (one `SUN_EWMA_TAU_S`) after an `f_cnt` reset /
+   `cold_boot`. `expected_daylight_fraction` is emitted alongside for exactly
+   this purpose.
+2. **Cutover schema inventory.** The decoder now also emits `uptime_s`,
+   `uptime_h`, `cycle_count`, `ram_count`, `panel_ma_min/mean/max`,
+   `panel_v_min/max`, `clarity_converging`, and the `ina219_ovf` fault name.
+   The shared webhook discards unknown fields during development, but the
+   telegraf/influx/grafana migration at cutover must decide which of these to
+   persist — silently dropping them is the same trap the cutover section of
+   the fleet notes already warns about.
+
 ### Problem
 
 Uplinks are the only instrument — there is no bench testing and no test hardware. Several failure modes are silent unless the backend watches for them.
