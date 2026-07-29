@@ -932,7 +932,7 @@ healthy unit, which is the point.
 
 ## 20. Probe hardening: check the calibration register after the soft reset
 
-**Status:** **IMPLEMENTED 2026-07-29** (`0a2dbf9`) — the operator resolved the judgement call to implement. Pending flash-verify: a healthy board must still detect SOLAR (a regression reads as the loud A1 signature).
+**Status:** **DONE, FLASH-VERIFIED 2026-07-29 10:33** (`0a2dbf9`) — the 32-bit identity still detects the sensor: `mode: SOLAR`, FPort 21, `ina219_config 0x399F`, `ina219_seen: true`. No regression to PRIMARY.
 **Complexity:** Low
 **Estimated time:** 2–3 h
 **Sprint:** 07 (or drop)
@@ -1278,7 +1278,7 @@ that early life most needs.
 
 ## 25. Verbose frame v2: guaranteed hourly, uptime/cycle count, DEV panel sub-sampling
 
-**Status:** **IMPLEMENTED 2026-07-29** (`654848f` firmware, `40e3331` decoder; formatter live) — `docs/dev-notes/20260729-1000_items-26-25-24b-20.md`. Pending flash-verify: hourly cadence independent of interval, cycle_count +1 per wake, profile min<mean<max.
+**Status:** **DONE, FLASH-VERIFIED 2026-07-29 10:33** — first schema-2 frame decoded end to end: 34 bytes, `diag_schema: 2`, `uptime_s: 40`, `cycle_count: 1`, `ram_count/uplink_counter` present, panel profile populated. Hourly cadence and a multi-sample profile spread confirm on the next frames.
 **Complexity:** Medium
 **Estimated time:** 5–7 h
 **Sprint:** 07
@@ -1347,7 +1347,7 @@ advancing by 1 per wake; panel min < mean < max on a partly cloudy day;
 
 ## 26. `sunPresent()`'s absolute 3000 mV threshold is structurally unreachable at night
 
-**Status:** **IMPLEMENTED 2026-07-29** (`58c9572`) — `docs/dev-notes/20260729-1000_items-26-25-24b-20.md`. Pending flash-verify: `sun_ewma` must DECREASE between consecutive night frames, the behaviour this device has never exhibited.
+**Status:** **IMPLEMENTED 2026-07-29** (`58c9572`), flashed 10:33. **Flash-verify still PENDING and only observable after dark**: `sun_ewma` must DECREASE between consecutive night frames. Restarted from 0 at the flash, so the daytime rise proves nothing either way.
 **Complexity:** Medium (signature change through a host-tested header)
 **Estimated time:** 3–5 h
 **Sprint:** 07 — **should land before the queued flash**, or the EWMA re-poisons
