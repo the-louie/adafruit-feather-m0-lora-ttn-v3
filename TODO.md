@@ -913,7 +913,7 @@ healthy unit, which is the point.
 
 ## 20. Probe hardening: check the calibration register after the soft reset
 
-**Status:** Not started. Optional defence-in-depth — `docs/ina219-register-reference.md` §7.5.
+**Status:** **IMPLEMENTED 2026-07-29** (`0a2dbf9`) — the operator resolved the judgement call to implement. Pending flash-verify: a healthy board must still detect SOLAR (a regression reads as the loud A1 signature).
 **Complexity:** Low
 **Estimated time:** 2–3 h
 **Sprint:** 07 (or drop)
@@ -1179,7 +1179,7 @@ than persisting for 24 h.
 
 ## 24. `clarity` is gated on the device clock, which it does not use
 
-**Status:** **(a) DONE 2026-07-28** — `docs/dev-notes/20260728-1910_clarity-off-the-device-clock.md`; decoder fixed, test inverted, live fixture updated, formatter re-uploaded to TTN and verified byte-identical. **(b) OPEN** — blocked on **item 25**, which carries the uptime/EWMA-age field.
+**Status:** **(a) DONE 2026-07-28**; **(b) DONE 2026-07-29** (`40e3331`) — schema-2 verbose frames gate clarity on uptime >= 24 h (`clarity_converging` while younger). Data frames stay ungated by design: a stateless formatter cannot gate a payload with no age field; backend gating folded into item 10.
 **Complexity:** Low (part a) / Medium (part b)
 **Estimated time:** 1–2 h (a), folds into the verbose-frame work (b)
 **Sprint:** 07
@@ -1259,9 +1259,7 @@ that early life most needs.
 
 ## 25. Verbose frame v2: guaranteed hourly, uptime/cycle count, DEV panel sub-sampling
 
-**Status:** Not started. Requested by the operator 2026-07-28 ("status uplinks
-every hour in DEV to verify the algorithms before deploy"); scoped in that
-discussion. **Unblocks item 24b**, which needs the uptime field.
+**Status:** **IMPLEMENTED 2026-07-29** (`654848f` firmware, `40e3331` decoder; formatter live) — `docs/dev-notes/20260729-1000_items-26-25-24b-20.md`. Pending flash-verify: hourly cadence independent of interval, cycle_count +1 per wake, profile min<mean<max.
 **Complexity:** Medium
 **Estimated time:** 5–7 h
 **Sprint:** 07
@@ -1330,8 +1328,7 @@ advancing by 1 per wake; panel min < mean < max on a partly cloudy day;
 
 ## 26. `sunPresent()`'s absolute 3000 mV threshold is structurally unreachable at night
 
-**Status:** **CONFIRMED over the air 2026-07-29** — the first honest night of
-panel data (capture `ttn-captures/gisebo05-ttn-20260729-morning.jsonl`).
+**Status:** **IMPLEMENTED 2026-07-29** (`58c9572`) — `docs/dev-notes/20260729-1000_items-26-25-24b-20.md`. Pending flash-verify: `sun_ewma` must DECREASE between consecutive night frames, the behaviour this device has never exhibited.
 **Complexity:** Medium (signature change through a host-tested header)
 **Estimated time:** 3–5 h
 **Sprint:** 07 — **should land before the queued flash**, or the EWMA re-poisons
