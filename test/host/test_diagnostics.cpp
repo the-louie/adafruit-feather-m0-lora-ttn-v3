@@ -201,9 +201,11 @@ int main() {
     v.resetCause=0x40; v.bootCounter=3; v.intervalIndex=4; v.seasonState=2; v.voltageBand=1;
     v.batteryMv=4209; v.panelBusMv=5070; v.panelCurrentTenthMa=125; v.sunEwma255=31;
     v.harvestMah=1234; v.ina219Config=0x399F; v.ds18Count=1; v.surfaceTempCenti=2160; v.faults=0;
+    v.uptimeSeconds=90061; v.cycleCount=25; v.ramCount=4; v.uplinkCounter=9;
+    // panelStats left null: stats bytes must be zero and the info bit clear.
     uint8_t buf[DIAG_VERBOSE_LEN];
     uint8_t n = diagEncodeVerbose(buf, &v);
-    check(n == DIAG_VERBOSE_LEN, "verbose: length is 22");
+    check(n == DIAG_VERBOSE_LEN, "verbose: length is 34 (schema 2)");
     check(buf[0]==DIAG_VERBOSE_SCHEMA, "verbose byte0 schema");
     check(buf[1]==(DIAG_INFO_SOLAR|DIAG_INFO_DEV|DIAG_INFO_COLD_BOOT|DIAG_INFO_CLOCK_VALID|
                    DIAG_INFO_INA219_SEEN|DIAG_INFO_BONUS_ACTIVE),
@@ -221,11 +223,61 @@ int main() {
     check(buf[17]==1, "verbose ds18 count");
     check((int16_t)((buf[18]<<8)|buf[19])==2160, "verbose surface temp centi");
     check(((buf[20]<<8)|buf[21])==0, "verbose faults (all clear)");
+    // ---- schema 2 bytes ----
+    check(((uint32_t)buf[22]<<24|(uint32_t)buf[23]<<16|(uint32_t)buf[24]<<8|buf[25])==90061u,
+          "verbose bytes22-25: uptime 90061 s (25h01m01s) big-endian");
+    check(((buf[26]<<8)|buf[27])==25, "verbose bytes26-27: cycle count");
+    check(buf[28]==((4<<4)|9), "verbose byte28: ramCount high nibble | uplinkCounter low");
+    check(buf[29]==0 && buf[30]==0 && buf[31]==0 && buf[32]==0 && buf[33]==0,
+          "verbose: null panelStats -> stats bytes zero");
+    check(!(buf[1] & DIAG_INFO_PANEL_STATS), "verbose: null panelStats -> info bit clear");
   }
   { // invalid temp sentinel round-trips as 0x7FFF
     VerboseSnapshot v{}; v.surfaceTempCenti=VERBOSE_TEMP_INVALID;
     uint8_t buf[DIAG_VERBOSE_LEN]; diagEncodeVerbose(buf, &v);
     check((int16_t)((buf[18]<<8)|buf[19])==VERBOSE_TEMP_INVALID, "verbose temp sentinel 0x7FFF");
+  }
+
+  // -------------------------------------------------------------------------
+  // 7. Panel-profile accumulator (schema 2) and its encoding.
+  // -------------------------------------------------------------------------
+  {
+    PanelStats s; panelStatsInit(&s);
+    check(s.n == 0, "stats: fresh accumulator is empty");
+
+    // The measured 2026-07-28 evening: 22 -> 13.8 -> 11.6 -> 2.4 mA.
+    panelStatsAdd(&s, 3916, 22.0f);
+    panelStatsAdd(&s, 3804, 13.8f);
+    panelStatsAdd(&s, 3704, 11.6f);
+    panelStatsAdd(&s, 3624, 2.4f);
+    check(s.n == 4, "stats: four samples counted");
+    check(s.iMinMa == 2.4f && s.iMaxMa == 22.0f, "stats: current min/max tracked");
+    check(s.vMinMv == 3624 && s.vMaxMv == 3916, "stats: bus min/max tracked");
+    float mean = panelStatsMeanMa(&s);
+    check(mean > 12.4f && mean < 12.5f, "stats: mean = 49.8/4 = 12.45 mA");
+
+    // Negative current (reverse leakage artefact) clamps to 0 in the profile.
+    PanelStats t; panelStatsInit(&t);
+    panelStatsAdd(&t, 3600, -0.5f);
+    check(t.iMinMa == 0.0f && t.iMaxMa == 0.0f, "stats: negative current clamps to 0");
+
+    // Encoders: same conventions as the data payload.
+    check(panelStatsEncodeMa(12.45f) == 25, "encode: 12.45 mA -> 25 (0.5 mA/LSB)");
+    check(panelStatsEncodeMa(200.0f) == 255, "encode: current clamps at 255");
+    check(panelStatsEncodeMv(3916) == 130, "encode: 3916 mV -> 130 (30 mV/LSB)");
+    check(panelStatsEncodeMv(60000) == 255, "encode: bus clamps at 255");
+
+    // Wired into the frame: stats present -> bit set, bytes populated.
+    VerboseSnapshot v{}; v.panelStats = &s;
+    uint8_t buf[DIAG_VERBOSE_LEN]; diagEncodeVerbose(buf, &v);
+    check((buf[1] & DIAG_INFO_PANEL_STATS) != 0, "frame: stats present -> info bit set");
+    check(buf[29]==5 && buf[30]==25 && buf[31]==44, "frame: i min/mean/max = 2.4/12.45/22 mA");
+    check(buf[32]==120 && buf[33]==130, "frame: v min/max = 3624/3916 mV");
+
+    // After the reset that follows a successful TX, the next frame is clean.
+    panelStatsInit(&s);
+    diagEncodeVerbose(buf, &v);
+    check(!(buf[1] & DIAG_INFO_PANEL_STATS), "frame: reset accumulator -> bit clear again");
   }
 
   std::printf("\n%s\n\n", failures ? "FAILED" : "all passed");

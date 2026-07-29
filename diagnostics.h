@@ -195,13 +195,73 @@ inline void diagMarkSent(uint16_t *lastSentFaults, uint32_t *lastSentEpoch,
 // never spends airtime/battery in the field. Battery is deliberately not a
 // concern in DEV, so it goes out on a fixed cadence with no rate/fault gating.
 // ---------------------------------------------------------------------------
-#define DIAG_VERBOSE_SCHEMA 1
-#define DIAG_VERBOSE_LEN    22
+// Schema 2 (2026-07-29, item 25): appends uptime, wake-cycle count, buffer
+// state and the panel min/mean/max profile after schema 1's 22 bytes. The
+// decoder keys on byte 0 and keeps decoding schema-1 captures.
+#define DIAG_VERBOSE_SCHEMA 2
+#define DIAG_VERBOSE_LEN    34
+#define DIAG_VERBOSE_V1_LEN 22
 
 // Extra info bits used only by the verbose frame (bytes 0-4 of the info byte are
 // the shared DIAG_INFO_* above).
 #define DIAG_INFO_BONUS_ACTIVE 0x20
 #define DIAG_INFO_BUS_AMBIG    0x40
+// Schema 2: the panel min/mean/max fields carry data (at least one sample was
+// accumulated since the last verbose frame). Clear on a PRIMARY board and on
+// the frame sent immediately at boot; the decoder emits nulls.
+#define DIAG_INFO_PANEL_STATS  0x80
+
+// ---------------------------------------------------------------------------
+// Panel-profile accumulator (schema 2). DEV samples the panel every minute or
+// two while it busy-waits through the "sleep" window; one INA219 point per
+// hour was shown to be a fragile basis for the harvest figure (a single
+// uncorroborated ~105 mA sample explained a 2 -> 129 mAh jump, 2026-07-28).
+// min/mean/max over the hour is a real charging profile, and the spread
+// directly measures the extrapolation error item 15 needs to bound.
+// Pure logic; the .ino feeds it samples and resets it after each verbose TX.
+// ---------------------------------------------------------------------------
+struct PanelStats {
+  uint16_t n;        // samples accumulated (0 = stats invalid)
+  uint16_t vMinMv, vMaxMv;
+  float    iMinMa, iMaxMa, iSumMa;
+};
+
+inline void panelStatsInit(PanelStats *s) {
+  s->n = 0;
+  s->vMinMv = 0; s->vMaxMv = 0;
+  s->iMinMa = 0.0f; s->iMaxMa = 0.0f; s->iSumMa = 0.0f;
+}
+
+inline void panelStatsAdd(PanelStats *s, uint16_t busMv, float currentMa) {
+  if (currentMa < 0) currentMa = 0;
+  if (s->n == 0) {
+    s->vMinMv = busMv; s->vMaxMv = busMv;
+    s->iMinMa = currentMa; s->iMaxMa = currentMa; s->iSumMa = currentMa;
+  } else {
+    if (busMv < s->vMinMv) s->vMinMv = busMv;
+    if (busMv > s->vMaxMv) s->vMaxMv = busMv;
+    if (currentMa < s->iMinMa) s->iMinMa = currentMa;
+    if (currentMa > s->iMaxMa) s->iMaxMa = currentMa;
+    s->iSumMa += currentMa;
+  }
+  if (s->n < 65535) s->n++;
+}
+
+inline float panelStatsMeanMa(const PanelStats *s) {
+  return s->n ? s->iSumMa / (float)s->n : 0.0f;
+}
+
+// Encoders shared with the data payload's conventions: current 0.5 mA/LSB,
+// bus 30 mV/LSB, both clamped.
+inline uint8_t panelStatsEncodeMa(float ma) {
+  if (ma < 0) ma = 0;
+  uint16_t code = (uint16_t)(ma / 0.5f + 0.5f);
+  return code > 255 ? 255 : (uint8_t)code;
+}
+inline uint8_t panelStatsEncodeMv(uint16_t mv) {
+  uint16_t code = mv / 30;
+  return code > 255 ? 255 : (uint8_t)code;
+}
 
 // Sentinel for an unavailable surface temperature (NaN / disconnected sensor).
 #define VERBOSE_TEMP_INVALID ((int16_t)0x7FFF)
@@ -233,11 +293,33 @@ struct VerboseSnapshot {
   uint8_t  ds18Count;
   int16_t  surfaceTempCenti;      // centi-degC; VERBOSE_TEMP_INVALID if unavailable
   uint16_t faults;                // same bitmap as the fault frame (0 = all clear)
+
+  // ---- schema 2 additions (item 25) ----
+  uint32_t uptimeSeconds;         // millis()/1000; DEV never sleeps so this is
+                                  // real elapsed time. Wraps at 49.7 days --
+                                  // acceptable for a bench frame that PROD
+                                  // never sends. Doubles as the EWMA-age input
+                                  // for the decoder's clarity gate (24b);
+                                  // after a warm reset the restored EWMA is
+                                  // OLDER than uptime, so the gate errs toward
+                                  // suppressing -- conservative by design.
+  uint16_t cycleCount;            // wake cycles since boot (sensor reads)
+  uint8_t  ramCount;              // batch fill, 0..6 (high nibble of byte 28)
+  uint8_t  uplinkCounter;         // 4-bit wire counter (low nibble of byte 28)
+  const PanelStats *panelStats;   // nullptr or n==0 -> stats bytes zero,
+                                  // DIAG_INFO_PANEL_STATS clear
 };
 
 // Serialise the verbose frame. Returns DIAG_VERBOSE_LEN. Byte map documented in
-// TODO.md item 16 and mirrored by the decoder's decodeVerbose().
+// TODO.md items 16 (schema 1, bytes 0-21) and 25 (schema 2, bytes 22-33), and
+// mirrored by the decoder's decodeVerbose():
+//   22-25  uptime seconds, big-endian
+//   26-27  wake-cycle count, big-endian
+//   28     (ramCount & 0x0F) << 4 | (uplinkCounter & 0x0F)
+//   29-31  panel current min / mean / max, 0.5 mA/LSB
+//   32-33  panel bus min / max, 30 mV/LSB
 inline uint8_t diagEncodeVerbose(uint8_t *buf, const VerboseSnapshot *v) {
+  bool statsValid = v->panelStats != 0 && v->panelStats->n > 0;
   buf[0] = DIAG_VERBOSE_SCHEMA;
   uint8_t info = 0;
   if (v->isSolar)       info |= DIAG_INFO_SOLAR;
@@ -247,6 +329,7 @@ inline uint8_t diagEncodeVerbose(uint8_t *buf, const VerboseSnapshot *v) {
   if (v->ina219Present) info |= DIAG_INFO_INA219_SEEN;
   if (v->bonusActive)   info |= DIAG_INFO_BONUS_ACTIVE;
   if (v->busAmbiguous)  info |= DIAG_INFO_BUS_AMBIG;
+  if (statsValid)       info |= DIAG_INFO_PANEL_STATS;
   buf[1] = info;
   buf[2] = v->resetCause;
   buf[3] = v->bootCounter;
@@ -262,6 +345,23 @@ inline uint8_t diagEncodeVerbose(uint8_t *buf, const VerboseSnapshot *v) {
   uint16_t t = (uint16_t)v->surfaceTempCenti;
   buf[18] = (uint8_t)(t >> 8);                       buf[19] = (uint8_t)(t & 0xFF);
   buf[20] = (uint8_t)(v->faults >> 8);              buf[21] = (uint8_t)(v->faults & 0xFF);
+
+  // ---- schema 2 ----
+  buf[22] = (uint8_t)(v->uptimeSeconds >> 24);
+  buf[23] = (uint8_t)(v->uptimeSeconds >> 16);
+  buf[24] = (uint8_t)(v->uptimeSeconds >> 8);
+  buf[25] = (uint8_t)(v->uptimeSeconds & 0xFF);
+  buf[26] = (uint8_t)(v->cycleCount >> 8);          buf[27] = (uint8_t)(v->cycleCount & 0xFF);
+  buf[28] = (uint8_t)(((v->ramCount & 0x0F) << 4) | (v->uplinkCounter & 0x0F));
+  if (statsValid) {
+    buf[29] = panelStatsEncodeMa(v->panelStats->iMinMa);
+    buf[30] = panelStatsEncodeMa(panelStatsMeanMa(v->panelStats));
+    buf[31] = panelStatsEncodeMa(v->panelStats->iMaxMa);
+    buf[32] = panelStatsEncodeMv(v->panelStats->vMinMv);
+    buf[33] = panelStatsEncodeMv(v->panelStats->vMaxMv);
+  } else {
+    buf[29] = buf[30] = buf[31] = buf[32] = buf[33] = 0;
+  }
   return DIAG_VERBOSE_LEN;
 }
 

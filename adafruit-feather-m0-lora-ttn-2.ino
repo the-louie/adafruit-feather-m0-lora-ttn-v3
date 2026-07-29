@@ -225,6 +225,17 @@ static bool     bootDiagSent = false;  // has the once-per-boot diagnostic frame
 static uint32_t lastVerboseMillis = 0;
 static bool     verboseSentOnce = false;
 
+// Schema 2 (item 25): the frame now carries uptime, a wake-cycle count and a
+// panel min/mean/max profile, and is emitted from INSIDE the DEV sleep loop as
+// well as at wake -- so the cadence is genuinely ~hourly instead of
+// max(1 h, wake interval), which used to thin the status exactly when long
+// winter/degraded intervals made it most wanted. All DEV-only; PROD never
+// emits the frame and never runs the sampler.
+#define PANEL_STATS_SAMPLE_MS 60000UL   // one profile sample per minute
+static uint32_t   lastPanelSampleMillis = 0;
+static PanelStats g_panelStats;          // reset after each verbose TX
+static uint16_t   g_cycleCount = 0;      // wake cycles (sensor reads) since boot
+
 // Batch buffer: newest at index 0. Each entry 2 bytes (int16)
 static uint16_t dataBuffer[MAX_BATCH];
 
@@ -502,6 +513,8 @@ void readAndBufferSensors() {
     g_ina219ReadOk = ina219LiveReadOk(busReadOk, convReady, currentOk, busMv);
     if (g_ina219ReadOk) {
       solarPolicy.ingestSample(busMv, currentMa, batteryMvNow, ingestDt);
+      // The wake-time read is also a profile point for the schema-2 stats.
+      if (runMode == 1) panelStatsAdd(&g_panelStats, busMv, currentMa);
     }
     // else: do NOT ingest. Feeding unconverted/garbage values to the EWMA and
     // harvest is exactly the overnight failure this gate exists to stop; the
@@ -560,6 +573,9 @@ void readAndBufferSensors() {
   // sensor read of this boot", independent of variant -- a primary board must
   // not leave it armed for a policy it never runs.
   firstSampleAfterBoot = false;
+  // Schema-2 wake-cycle counter: one per sensor read, saturating (a bench run
+  // long enough to wrap 65535 hourly wakes is not a bench run).
+  if (g_cycleCount < 65535) g_cycleCount++;
 
   // Explicitly log the reading and buffer status
   logPrint(F("--> Measured surface temp: "));
@@ -889,10 +905,53 @@ static void gatherVerbose(VerboseSnapshot *v) {
     v->surfaceTempCenti = VERBOSE_TEMP_INVALID;
   }
   v->faults        = diagComputeFaults(&in);
+
+  // ---- schema 2 (item 25) ----
+  v->uptimeSeconds = millis() / 1000UL;   // DEV never sleeps: real elapsed time
+  v->cycleCount    = g_cycleCount;
+  v->ramCount      = uplinkSched.ramCount;
+  v->uplinkCounter = uplinkScheduleCounterForPayload(&uplinkSched);
+  v->panelStats    = &g_panelStats;       // n==0 (primary / just reset) -> bit clear
+}
+
+// One out-of-cycle panel sample for the schema-2 min/mean/max profile. Called
+// from the DEV sleep loop roughly once a minute. Same wake -> CNVR -> read ->
+// power-down sequence as the wake-time read; a failed sample is simply not
+// added (the profile is a diagnostic, not a control input, so silence beats
+// noise). The ~2 ms I2C transaction between os_runloop_once() calls is the
+// same perturbation the wake-time read already makes, and the radio is idle.
+static void samplePanelForStats() {
+  if (powerVariant != VARIANT_SOLAR || runMode != 1) return;
+#ifdef SOLAR_NO_INA219
+  uint16_t adc = analogRead(PANEL_ADC_PIN);
+  panelStatsAdd(&g_panelStats,
+                (uint16_t)(adc * (3.3f / 1024.0f) * PANEL_DIV_RATIO * 1000.0f),
+                0.0f);
+#else
+  ina219.powerSave(false);
+  uint16_t raw = 0;
+  bool ok = false;
+  uint32_t t0 = millis();
+  do {
+    ok = ina219ReadBusRaw(&raw) && ina219BusConversionReady(raw);
+    if (ok) break;
+    os_runloop_once();
+  } while (millis() - t0 < INA219_CNVR_TIMEOUT_MS);
+  if (ok) {
+    float ma = ina219.getCurrent_mA();
+    if (ina219.success()) {
+      panelStatsAdd(&g_panelStats, ina219BusMillivolts(raw), ma);
+    }
+  }
+  ina219.powerSave(true);
+#endif
 }
 
 // Verbose full-state snapshot -- DEV-only, once at boot then ~hourly. Out-of-band.
-// Call once per operational cycle, after the fault-diagnostic evaluation.
+// Called once per operational cycle after the fault-diagnostic evaluation, AND
+// from inside the DEV sleep loop, so the hourly cadence holds even when the
+// wake interval is longer than an hour (schema 2 / item 25). The millis() gate
+// in verboseShouldSend() makes the extra call sites idempotent.
 static void evaluateAndMaybeSendVerbose() {
   if (!verboseShouldSend(runMode == 1, verboseSentOnce, millis(),
                          lastVerboseMillis, VERBOSE_INTERVAL_MS)) {
@@ -927,6 +986,9 @@ static void evaluateAndMaybeSendVerbose() {
     // the right asymmetry: DEV gets per-occurrence resolution for bench work,
     // PROD keeps the once-per-day limit that protects duty cycle and battery.
     if (v.faults & DIAG_FAULT_TX_TIMEOUT) g_txFaultPending = false;
+    // The frame that just went out carried this hour's panel profile; start
+    // accumulating the next one.
+    panelStatsInit(&g_panelStats);
   }
 }
 
@@ -1002,6 +1064,7 @@ void setup() {
   sleepIntervalSeconds = kIntervalSecondsByIndex[intervalIdx];
   batchTarget = 6;
   uplinkScheduleInit(&uplinkSched, batchTarget);
+  panelStatsInit(&g_panelStats);   // schema-2 profile accumulator
   uplinkSched.uplinkCounter = persist.uplinkCounter; // preserve across soft reset
 
   // Read the strap: only runMode differs (USB/Serial, join timeout, sleep path still vary by mode)
@@ -1192,6 +1255,17 @@ void loop() {
       // iteration keeps the extender continuous. See
       // docs/dev-notes/20260728-1215_dev-sleep-starves-lmic-clock.md.
       (void)os_getTime();
+      // Schema-2 panel profile: one sample a minute while we idle. And the
+      // guaranteed-hourly verbose emission -- calling the evaluator here (it
+      // is millis()-gated, so almost always a no-op) is what turns the old
+      // max(1 h, wake interval) cadence into a real hourly one even at long
+      // winter/degraded intervals. Both DEV-only by construction: this whole
+      // branch is the DEV busy-wait, which PROD never enters.
+      if (millis() - lastPanelSampleMillis >= PANEL_STATS_SAMPLE_MS) {
+        lastPanelSampleMillis = millis();
+        samplePanelForStats();
+      }
+      evaluateAndMaybeSendVerbose();
       delay(1); // Small delay to prevent watchdog resets
     }
   } else {
