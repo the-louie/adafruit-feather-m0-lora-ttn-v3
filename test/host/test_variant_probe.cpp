@@ -18,16 +18,16 @@ static void check(bool ok, const char *what) {
 }
 
 static ProbeResult present() {
-  return {true, true, INA219_CONFIG_RESET_VALUE};
+  return {true, true, INA219_CONFIG_RESET_VALUE, true, INA219_CAL_RESET_VALUE};
 }
 static ProbeResult absent() {
-  return {false, false, 0};
+  return {false, false, 0, false, 0};
 }
 static ProbeResult ackButWrongConfig() {
-  return {true, true, 0x1234};   // something else at 0x40
+  return {true, true, 0x1234, true, 0};   // something else at 0x40
 }
 static ProbeResult ackButNoRead() {
-  return {true, false, 0};       // ACKs, then the bus hangs mid-read
+  return {true, false, 0, false, 0};      // ACKs, then the bus hangs mid-read
 }
 
 int main() {
@@ -53,12 +53,22 @@ int main() {
     // it -- which is exactly why probeIna219Once() must soft-reset the sensor to
     // 0x399F before reading. Regression guard for the gisebo-05 2026-07-27
     // misdetect (solar booted PRIMARY after an RST-button reset).
-    ProbeResult cal = { true, true, INA219_CONFIG_CALIBRATED_VALUE };
+    ProbeResult cal = { true, true, INA219_CONFIG_CALIBRATED_VALUE, true, 0x2000 };
     check(!probeAttemptFoundIna219(&cal),
           "calibrated 0x019F is not 0x399F -> the .ino must soft-reset before reading");
-    ProbeResult afterReset = { true, true, INA219_CONFIG_RESET_VALUE };
+    ProbeResult afterReset = { true, true, INA219_CONFIG_RESET_VALUE, true, 0x0000 };
     check(probeAttemptFoundIna219(&afterReset),
           "after soft-reset the INA219 reads 0x399F -> recognised");
+
+    // The 32-bit identity (item 20): after RST, Calibration (05h) must be
+    // 0x0000 too. Config alone matching is no longer enough -- guards against
+    // a foreign device at 0x40 that happens to serve 0x399F at register 00h.
+    ProbeResult calWrong = { true, true, INA219_CONFIG_RESET_VALUE, true, 0x1234 };
+    check(!probeAttemptFoundIna219(&calWrong),
+          "config right but calibration nonzero after RST -> NOT found");
+    ProbeResult calUnread = { true, true, INA219_CONFIG_RESET_VALUE, false, 0 };
+    check(!probeAttemptFoundIna219(&calUnread),
+          "config right but calibration unreadable -> NOT found (flaky bus)");
   }
 
   // -------------------------------------------------------------------------

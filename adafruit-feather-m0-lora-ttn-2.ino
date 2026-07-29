@@ -260,7 +260,7 @@ const lmic_pinmap lmic_pins = {
 // attempts, what a result means) is host-tested in variant_probe.h; this only
 // does the I2C.
 static ProbeResult probeIna219Once() {
-  ProbeResult r = {false, false, 0};
+  ProbeResult r = {false, false, 0, false, 0};
 
   // Soft-reset the INA219 BEFORE reading its config. On a WARM MCU reset (RST
   // button, watchdog, the PROD join-failure NVIC_SystemReset) the INA219 stays
@@ -290,6 +290,19 @@ static ProbeResult probeIna219Once() {
   uint16_t lo = Wire.read();
   r.configValue = (hi << 8) | lo;
   r.configRead = true;
+
+  // Second identity word: after the RST above, a real INA219's Calibration
+  // register (05h) MUST read 0x0000 ("resets all registers to default values").
+  // Two extra I2C bytes turn the 16-bit config match into a 32-bit identity --
+  // the part has no ID register, so this is all the identification it offers.
+  Wire.beginTransmission(INA219_I2C_ADDR);
+  Wire.write(INA219_REG_CALIBRATION);
+  if (Wire.endTransmission(false) != 0) return r;
+  if (Wire.requestFrom(INA219_I2C_ADDR, 2) != 2) return r;
+  hi = Wire.read();
+  lo = Wire.read();
+  r.calValue = (hi << 8) | lo;
+  r.calRead = true;
   return r;
 }
 

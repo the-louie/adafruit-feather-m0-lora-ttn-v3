@@ -65,19 +65,35 @@ enum PowerVariant : uint8_t {
   VARIANT_SOLAR   = 1,
 };
 
+// The Calibration register (05h). RST resets ALL registers, so after the
+// probe's soft reset a real INA219 must read 0x0000 here. Checking it turns the
+// 16-bit config identity match into a 32-bit one for two extra I2C bytes -- the
+// part has NO manufacturer/die-ID register (the map ends at 05h), so the
+// register contents are the only identification available. Weighed against the
+// probe philosophy (a missed present sensor is the WORSE error): the retries
+// still favour present, and a device that ACKs, serves 0x399F at 00h AND
+// 0x0000 at 05h but is not an INA219 is vanishingly unlikely. TODO item 20.
+#define INA219_REG_CALIBRATION 0x05
+#define INA219_CAL_RESET_VALUE 0x0000
+
 // The result of one physical probe attempt. Filled in by the .ino from Wire.
 struct ProbeResult {
   bool    addressAcked;   // did 0x40 ACK its address?
   bool    configRead;     // did we get a config register read back?
   uint16_t configValue;   // ... and its value
+  bool    calRead;        // did we get a calibration register read back?
+  uint16_t calValue;      // ... and its value (must be 0x0000 after RST)
 };
 
 // Is a single attempt a confident "INA219 present"?
-// Needs BOTH the ACK and the expected config value -- an ACK alone could be some
-// other 0x40 device, and a garbage config value means a flaky bus, not a sensor.
+// Needs the ACK, the post-reset config value AND the post-reset calibration
+// value -- an ACK alone could be some other 0x40 device, a garbage read means a
+// flaky bus, and both registers together are as close to an identity as a part
+// with no ID register can offer.
 inline bool probeAttemptFoundIna219(const ProbeResult *r) {
   return r->addressAcked && r->configRead &&
-         r->configValue == INA219_CONFIG_RESET_VALUE;
+         r->configValue == INA219_CONFIG_RESET_VALUE &&
+         r->calRead && r->calValue == INA219_CAL_RESET_VALUE;
 }
 
 // Decide the variant from a run of attempts.
