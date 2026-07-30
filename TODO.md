@@ -725,6 +725,15 @@ Things that cannot be verified any other way:
 
 The power telemetry has never been checked against a reference. `getBatteryVoltage()` reads A7 through a 100k/100k divider; the solar path reads panel **bus voltage** and current from the INA219 (16 V/400 mA calibration, 0.1 mA/LSB) and feeds the sun EWMA and the harvest accumulator. All of this is host-tested *logic* and compile-verified *glue* — but the actual ADC/I2C readings, the divider ratio, and the INA219 calibration are unverified on silicon. A wrong divider or calibration silently skews the battery bands (and thus the interval ladder) and the harvest figure, with no symptom in the data.
 
+**2026-07-30 — the error bar is now measured over a FULL day, not four hours.**
+Post-flash, comparing each cycle's harvest delta against that hour's true mean
+from the minute-spaced profile: **cumulative −29.7%** (365 mAh reported against
+519 mAh true), worst daylight hours **−69%** (14:34: 34 vs 110) and **−63%**
+(13:33: 42 vs 115), with the sign flipping both ways (**+28%** at 12:33,
+**+67%** at 06:36). Dusk and dawn are the worst relative offenders because the
+integrand is changing fastest there. Confirms the reclassification below: no
+constant can correct a signed, hour-varying aliasing error.
+
 **2026-07-29 update — the harvest error bar is ANSWERED, and it is structural.**
 The schema-2 panel profile measured the wake-sample-vs-hourly-mean error on
 live data: up to 63% in one hour, ~36% cumulative over four hours, sign varying
@@ -1378,7 +1387,9 @@ advancing by 1 per wake; panel min < mean < max on a partly cloudy day;
 
 ## 26. `sunPresent()`'s absolute 3000 mV threshold is structurally unreachable at night
 
-**Status:** **IMPLEMENTED 2026-07-29** (`58c9572`), flashed 10:33. **Flash-verify still PENDING and only observable after dark**: `sun_ewma` must DECREASE between consecutive night frames. Restarted from 0 at the flash, so the daytime rise proves nothing either way.
+**Status:** **DONE, FLASH-VERIFIED 2026-07-30** (`58c9572`, flashed 2026-07-29 10:33). The full night settles it: `sun_ewma` fell monotonically across **8 consecutive dark frames** (0.341 → 0.243, 21:34 → 04:35, every step within the 8-bit wire quantum of the `exp(-1/24)` model), reached its trough at the last pre-sunrise wake, then **rose monotonically across 4 dawn frames** (0.243 → 0.361). Both arms verifiably failed in the dark: 0.0 mA against the 1 mA floor, bus 166–169 mV *below* battery against the +150 mV relative test — the same back-feed input the old absolute threshold called "sun" all night. `bonus_active` stayed false throughout. Capture: `ttn-captures/gisebo05-ttn-20260730-morning.jsonl`.
+
+**Threshold validation worth keeping:** dawn was detected at 05:36 by the current arm reading **1.1 mA** against `SUN_CURRENT_MA` = 1.0, while the relative arm was still failing at −167 mV. A 2 mA floor would have missed that wake and delayed recovery by an hour, so the 1 mA choice is confirmed by measurement, not just by noise-floor argument.
 **Complexity:** Medium (signature change through a host-tested header)
 **Estimated time:** 3–5 h
 **Sprint:** 07 — **should land before the queued flash**, or the EWMA re-poisons
