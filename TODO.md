@@ -1238,7 +1238,7 @@ than persisting for 24 h.
 
 ## 24. `clarity` is gated on the device clock, which it does not use
 
-**Status:** **(a) DONE 2026-07-28**; **(b) DONE 2026-07-29** (`40e3331`) — schema-2 verbose frames gate clarity on uptime >= 24 h (`clarity_converging` while younger). Data frames stay ungated by design: a stateless formatter cannot gate a payload with no age field; backend gating folded into item 10.
+**Status:** **(a) DONE 2026-07-28**; **(b) DONE 2026-07-29, FLASH-VERIFIED 2026-07-30 10:36** (`40e3331`) — schema-2 verbose frames gate clarity on uptime >= 24 h (`clarity_converging` while younger). Observed flipping exactly at the gate: the 09:36 frame at `uptime_s 83024` reported `clarity: null, clarity_converging: true`; the 10:36 frame at `uptime_s 86637` reported `clarity: 0.608, clarity_converging: false`, matching `sun_ewma 0.412 / expected_daylight_fraction 0.678` to the third decimal. Data frames stay ungated by design: a stateless formatter cannot gate a payload with no age field; backend gating folded into item 10.
 **Complexity:** Low (part a) / Medium (part b)
 **Estimated time:** 1–2 h (a), folds into the verbose-frame work (b)
 **Sprint:** 07
