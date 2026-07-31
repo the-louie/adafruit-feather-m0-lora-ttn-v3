@@ -1494,8 +1494,7 @@ has never shown. Watch the first night after deployment of the fix.
 
 ## 27. Water-plausibility check: catch a sensor that reads valid but wrong
 
-**Status:** Not started. Proposed 2026-08-01 from the gisebo-01 failure review;
-the only DS18B20 failure class the diagnostics currently miss **entirely**.
+**Status:** **IMPLEMENTED 2026-08-01** (`344acab`, wired `241bd2b`) — `sensor_plausibility.h`, fault `0x0100`, thresholds measured from fleet data (water max 0.93 °C/h, fridge 1.79, bench-air 7.4 → threshold 10). Pending flash-verify: no false fire on the balcony; a pulled-into-sun sensor must fire.
 **Complexity:** Low–Medium
 **Estimated time:** 3–5 h
 **Sprint:** 07
@@ -1552,7 +1551,7 @@ environment or the test unit will cry wolf.
 
 ## 28. Explicit DS18B20 status code instead of a boolean
 
-**Status:** Not started. Proposed 2026-08-01.
+**Status:** **IMPLEMENTED 2026-08-01** (`03392e3`) — fault frame schema 2 byte 11, `ds18DeriveStatus()` host-tested. Pending flash-verify: healthy unit reports `ds18_status: "ok"`.
 **Complexity:** Low
 **Estimated time:** 2–3 h
 **Sprint:** 07
@@ -1595,7 +1594,7 @@ Host tests per status value; over the air, an unplugged sensor must report
 
 ## 29. Consecutive-failure counter for the sensor
 
-**Status:** Not started. Proposed 2026-08-01.
+**Status:** **IMPLEMENTED 2026-08-01** (`03392e3`) — byte 12, persisted (PERSIST_VERSION 3). Pending flash-verify: 0 on a healthy unit, rising on a disconnected sensor.
 **Complexity:** Low
 **Estimated time:** ~1 h
 **Sprint:** 07
@@ -1626,7 +1625,7 @@ attached.
 
 ## 30. Retry the sensor read within the wake
 
-**Status:** Not started. Proposed 2026-08-01.
+**Status:** **IMPLEMENTED 2026-08-01** (`241bd2b`) — one retry in the failure path plus hot-plug re-enumeration when the cached count is 0 (the bench swap-test now works without a reboot).
 **Complexity:** Low
 **Estimated time:** 1–2 h
 **Sprint:** 07
@@ -1659,7 +1658,7 @@ an intermittent connection should show materially fewer lost samples than today.
 
 ## 31. Report the DS18B20 ROM id
 
-**Status:** Not started. Proposed 2026-08-01. Lowest priority of the five.
+**Status:** **IMPLEMENTED 2026-08-01** (`03392e3`) — bytes 13–15, captured at boot and on re-enumeration. Pending flash-verify: stable across reboots.
 **Complexity:** Low
 **Estimated time:** 2–3 h
 **Sprint:** 07 or later
