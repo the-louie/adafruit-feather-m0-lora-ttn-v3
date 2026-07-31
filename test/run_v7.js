@@ -164,6 +164,44 @@ console.log("\nv7 decoder -- verbose schema 2 (item 25) + clarity convergence ga
         s0r.errors.length === 0 && s0r.warnings.some(w => w.includes("decoding as v1")));
 }
 
+console.log("\nv7 decoder -- diagnostic schema 2 (status, streak, ROM)");
+{
+  // Schema-2 fault frame: the schema-1 layout plus status/streak/ROM at 11-15.
+  const mk2 = (status, streak, rom) => {
+    const b = new Array(16).fill(0);
+    b[0] = 2;
+    b[1] = 0x01 | 0x02 | 0x08 | 0x10;   // SOLAR|DEV|CLOCK|SEEN
+    b[2] = 0x01; b[3] = 1; b[4] = status === 1 ? 0 : 1;   // count matches status
+    // faults: none set here; status flavour rides byte 11
+    b[7] = 0x39; b[8] = 0x9F;
+    b[9] = 0x0E; b[10] = 0xD2;
+    b[11] = status; b[12] = streak;
+    b[13] = rom[0]; b[14] = rom[1]; b[15] = rom[2];
+    return b;
+  };
+  const r = decode({ bytes: mk2(3, 42, [0xab, 0xcd, 0xef]), fPort: 2, recvTime: RECV });
+  check("diag2: decodes without errors", r.errors.length === 0);
+  check("diag2: status name stuck_85", r.data.ds18_status === "stuck_85");
+  check("diag2: streak 42", r.data.sensor_fail_streak === 42);
+  check("diag2: ROM abcdef", r.data.ds18_rom === "abcdef");
+  const noRom = decode({ bytes: mk2(1, 7, [0, 0, 0]), fPort: 2, recvTime: RECV });
+  check("diag2: ROM zero -> null (no sensor)", noRom.data.ds18_rom === null);
+  check("diag2: status not_found", noRom.data.ds18_status === "not_found");
+  // A schema-1 11-byte frame (what gisebo-01 sent 2026-08-01) must still decode.
+  const v1 = decode({ bytes: [1,0x0c,0x40,1,0,0,1,0,0,0x10,0x94], fPort: 2, recvTime: RECV });
+  check("diag1: 11-byte frame still decodes (gisebo-01 compat)",
+        v1.errors.length === 0 && v1.data.faults.includes("ds18b20_not_found"));
+  check("diag1: no schema-2 fields invented", v1.data.ds18_status === undefined);
+  // Wrong length for the declared schema rejects loudly.
+  check("diag2: 11 bytes with schema byte 2 errors",
+        decode({ bytes: mk2(0,0,[0,0,0]).slice(0,11), fPort: 2, recvTime: RECV }).errors.length > 0);
+  // The new fault name decodes.
+  const f = new Array(16).fill(0); f[0]=2; f[1]=0x03; f[4]=1; f[5]=0x01; f[6]=0x00;
+  const fr = decode({ bytes: f, fPort: 2, recvTime: RECV });
+  check("diag2: fault bit 0x0100 names temp_implausible",
+        decode({ bytes: (()=>{const b=new Array(16).fill(0);b[0]=2;b[4]=1;b[5]=0x01;b[6]=0x00;return b;})(), fPort: 2, recvTime: RECV }).data.faults.includes("temp_implausible"));
+}
+
 console.log("\nv7 decoder -- verbose schema 3 (firmware commit hash)");
 {
   // Schema 3 = the schema-2 layout plus 3 hash bytes at 34-36.

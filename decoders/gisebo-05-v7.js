@@ -38,7 +38,13 @@ function expectedDaylightFraction(date, latDeg) {
 // Mirrors diagnostics.h. FPort 1 = PROD, 2 = DEV. 11 bytes.
 const DIAG_FPORT_PROD = 1;
 const DIAG_FPORT_DEV = 2;
-const DIAG_PAYLOAD_LEN = 11;
+const DIAG_V1_LEN = 11;
+const DIAG_V2_LEN = 16;   // schema 2 appends DS18B20 status, failure streak, ROM id
+
+// Order matches diagnostics.h Ds18Status.
+const DS18_STATUS_NAMES = [
+  "ok", "not_found", "crc_or_no_response", "stuck_85", "out_of_range", "bus_ambiguous",
+];
 
 // Verbose DEV diagnostics ("all-clear" full-state snapshot), DEV-only, FPort 3.
 // Schema 1 = 22 bytes; schema 2 (2026-07-29) appends uptime, cycle count,
@@ -71,6 +77,7 @@ const DIAG_FAULT_NAMES = [
   [0x0020, "tx_timeout"],
   [0x0040, "low_battery"],
   [0x0080, "ina219_ovf"],
+  [0x0100, "temp_implausible"],
 ];
 
 // SAMD21 PM->RCAUSE bits (byte 2).
@@ -91,12 +98,15 @@ function namesForBits(value, table) {
 
 function decodeDiagnostic(bytes, fPort) {
   const data = {}, warnings = [], errors = [];
-  if (bytes.length !== DIAG_PAYLOAD_LEN) {
-    errors.push(`diagnostic FPort ${fPort} expects ${DIAG_PAYLOAD_LEN} bytes, got ${bytes.length}`);
+  const schema = bytes.length >= 1 ? bytes[0] : 0;
+  const expectedLen = schema >= 2 ? DIAG_V2_LEN : DIAG_V1_LEN;
+  if (bytes.length !== expectedLen) {
+    errors.push(`diagnostic FPort ${fPort} schema ${schema} expects ${expectedLen} bytes, got ${bytes.length}`);
     return { data: {}, warnings, errors };
   }
-  const schema = bytes[0];
-  if (schema !== 1) warnings.push(`unknown diagnostic schema ${schema}; decoding as v1`);
+  if (schema < 1 || schema > 2) {
+    warnings.push(`unknown diagnostic schema ${schema}; decoding as v${schema >= 2 ? 2 : 1}`);
+  }
 
   const info = bytes[1];
   data.version = FIRMWARE_VERSION;
@@ -128,6 +138,13 @@ function decodeDiagnostic(bytes, fPort) {
   data.ina219_config_ok = probeCfg === 0x399F;   // INA219 config-register reset value
 
   data.battery_v = Number((((bytes[9] << 8) | bytes[10]) / 1000).toFixed(3));
+
+  if (schema >= 2) {
+    data.ds18_status = DS18_STATUS_NAMES[bytes[11]] || `unknown_${bytes[11]}`;
+    data.sensor_fail_streak = bytes[12];
+    const rom = (bytes[13] << 16) | (bytes[14] << 8) | bytes[15];
+    data.ds18_rom = rom === 0 ? null : rom.toString(16).padStart(6, "0");
+  }
 
   return { data, warnings, errors };
 }
