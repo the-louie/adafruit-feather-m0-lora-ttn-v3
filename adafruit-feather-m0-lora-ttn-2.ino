@@ -33,6 +33,7 @@
 #include "keygen.h"
 #include "keygen_salt.h"
 #include "diagnostics.h"
+#include "sensor_plausibility.h"
 #include "ina219_bus.h"
 #include <Adafruit_INA219.h>
 
@@ -237,6 +238,11 @@ static bool     g_ina219Ovf = false;   // solar: OVF math-overflow flag on the l
 // evaluation. Cleared ONLY after a diagnostic frame actually transmits.
 static bool     g_txFaultPending = false;
 static bool     bootDiagSent = false;  // has the once-per-boot diagnostic frame gone out?
+// Sensor-diagnostics state (TODO items 27-31).
+static uint8_t  g_ds18Status = DS18_NOT_FOUND; // Ds18Status of the last wake's read
+static bool     g_tempImplausible = false;     // valid reading, impossible water step
+static uint8_t  g_ds18Rom[3] = {0, 0, 0};      // low 3 bytes of the sensor ROM serial
+static float    g_prevTempC = NAN;             // last VALID reading, for the step check
 
 // Verbose DEV diagnostics (diagnostics.h) -- a full-state snapshot on its own
 // FPort, DEV-only, on a fixed cadence. DEV never deep-sleeps, so millis() advances
@@ -610,6 +616,73 @@ void readAndBufferSensors() {
   // slot and seasonUpdate ignores -- so the season holds rather than drifting on
   // a reading from the wrong sensor.
   float tempC = sensorBusAmbiguous ? NAN : sensors.getTempCByIndex(0);
+
+  // One retry inside the wake (TODO 30). A single transient -- EMI, a marginal
+  // CRC, a momentary contact -- otherwise costs the whole interval's sample and
+  // is indistinguishable from a hard fault. The retry costs a second conversion
+  // window ONLY in the failure path; a healthy wake pays nothing. Failing twice
+  // inside one wake is much stronger evidence of a real fault than one miss.
+  if (tempC != tempC || tempC <= -100.0f) {
+    if (g_ds18Count == 0) {
+      // Re-enumerate on failure: the count is otherwise cached from setup(), so
+      // a sensor attached after boot (the bench swap-test on a broken unit)
+      // would never be noticed until a reboot. begin() re-runs the bus search.
+      sensors.begin();
+      g_ds18Count = sensors.getDeviceCount();
+      sensorBusAmbiguous = (g_ds18Count > 1);
+      if (g_ds18Count >= 1) {
+        DeviceAddress a;
+        if (sensors.getAddress(a, 0)) {
+          g_ds18Rom[0] = a[1]; g_ds18Rom[1] = a[2]; g_ds18Rom[2] = a[3];
+        }
+      }
+    }
+    if (g_ds18Count == 1 && !sensorBusAmbiguous) {
+      sensors.requestTemperatures();
+      uint32_t retryStart = millis();
+      if (runMode == 0) {
+        delay(DALLAS_CONV_MS);          // radio idle here, same as the main wait
+      } else {
+        while (millis() - retryStart < DALLAS_CONV_MS) {
+          os_runloop_once();
+          delay(1);
+        }
+      }
+      tempC = sensors.getTempCByIndex(0);
+    }
+  }
+
+  // Status code (TODO 28), from the POST-retry outcome. Pure derivation, host-
+  // tested; the wire carries which flavour of failure, not just that one
+  // happened.
+  g_ds18Status = ds18DeriveStatus(g_ds18Count, sensorBusAmbiguous, tempC);
+
+  // Consecutive-failure streak (TODO 29), persisted: the daily fault rate limit
+  // hides failure FREQUENCY, and a fault that spans the join-failure reset is a
+  // different animal from one that does not. Counts wake-level outcomes, not
+  // individual attempts.
+  if (g_ds18Status == DS18_OK) {
+    persist.sensorFailStreak = 0;
+  } else if (persist.sensorFailStreak < 255) {
+    persist.sensorFailStreak++;
+  }
+  persistSeal(&persist);
+
+  // Water-step plausibility (TODO 27): a VALID reading that moved faster than
+  // water physically can means the sensor is likely measuring air. Thresholds
+  // derived from fleet data; see sensor_plausibility.h. No comparison on the
+  // first sample after boot (dt would be fabricated -- same reasoning as the
+  // ingest guard) or across an invalid gap.
+  if (g_ds18Status == DS18_OK) {
+    g_tempImplausible = firstSampleAfterBoot
+        ? false
+        : !waterStepPlausible(g_prevTempC, tempC, sleepIntervalSeconds);
+    g_prevTempC = tempC;
+  } else {
+    g_tempImplausible = false;   // no reading, no verdict; the read fault carries it
+    g_prevTempC = NAN;           // do not compare across a failed gap
+  }
+
   surfaceTempC = tempC;
   int16_t encodedTemp = encodeWaterTemperature(tempC);
 
@@ -814,7 +887,12 @@ static void gatherDiagInputs(DiagInputs *in) {
   in->bootCounter    = persist.bootCounter;
   in->ds18Count      = g_ds18Count;
   // A real reading is finite and above the DS18B20 disconnect sentinel (-127).
-  in->ds18ReadValid  = (surfaceTempC == surfaceTempC) && surfaceTempC > -100.0f;
+  in->ds18Status       = g_ds18Status;
+  in->tempImplausible  = g_tempImplausible;
+  in->sensorFailStreak = persist.sensorFailStreak;
+  in->ds18Rom[0] = g_ds18Rom[0];
+  in->ds18Rom[1] = g_ds18Rom[1];
+  in->ds18Rom[2] = g_ds18Rom[2];
   in->coldBoot       = g_coldBoot;
   in->persistCorrupt = g_persistCorrupt;
   in->ina219Present  = g_ina219Present;
@@ -1198,6 +1276,14 @@ void setup() {
   // temperature as if it were the surface is not.
   g_ds18Count = sensors.getDeviceCount();   // cached for the diagnostic frame
   sensorBusAmbiguous = (g_ds18Count > 1);
+  if (g_ds18Count >= 1) {
+    // Low 3 bytes of the ROM serial (TODO 31): enough to notice a swapped
+    // sensor over the air. addr[0] is the family code, addr[7] the CRC.
+    DeviceAddress a;
+    if (sensors.getAddress(a, 0)) {
+      g_ds18Rom[0] = a[1]; g_ds18Rom[1] = a[2]; g_ds18Rom[2] = a[3];
+    }
+  }
   if (sensorBusAmbiguous) {
     logPrint(F("ERROR: more than one DS18B20 on A2, found "));
     logPrintln(g_ds18Count);
