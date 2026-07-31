@@ -1,11 +1,11 @@
-// DS18B20 bench diagnostic -- Adafruit Feather M0 (any variant), DQ on A2.
+// DS18B20 bench diagnostic -- Adafruit Feather M0 (any variant), DQ on A0.
 //
 // Standalone sensor-and-cable tester: no LoRa, no LMIC, no project headers.
 // Built to answer "is this sensor assembly good?" from the MCU end alone,
 // after DC tests (DMM diode/leakage checks) have said the wiring LOOKS intact.
 //
-// Wiring: sensor VDD -> 3V3, GND -> GND, DQ -> A2, and a 4.7k resistor from
-// A2 to 3V3 (the bare Feather has no pull-up on A2; the bus cannot idle high
+// Wiring: sensor VDD -> 3V3, GND -> GND, DQ -> A0, and a 4.7k resistor from
+// A0 to 3V3 (the bare Feather has no pull-up on A0; the bus cannot idle high
 // without one, and phase 0 below will say so).
 //
 // What it does:
@@ -32,7 +32,7 @@
 
 #include <OneWire.h>
 
-#define ONEWIRE_PIN A2
+#define ONEWIRE_PIN A0
 #define LED_PIN     13
 
 // DS18B20 function commands (datasheet, "ROM commands" / "function commands").
@@ -452,7 +452,7 @@ void setup() {
   }
   digitalWrite(LED_PIN, LOW);
   Serial.println();
-  Serial.println(F("=== DS18B20 bench diagnostic (DQ on A2, 4.7k pull-up to 3V3 required) ==="));
+  Serial.println(F("=== DS18B20 bench diagnostic (DQ on A0, 4.7k pull-up to 3V3 required) ==="));
   Serial.println();
 }
 
