@@ -589,10 +589,28 @@ The `FIRMWARE_VERSION` constant survives this and is still worth having: it is w
 
 ## 10. Backend alarms and monitoring
 
-**Status:** Not started
+**Status:** Partially done — the pipeline cutover landed 2026-07-31; alarms,
+dashboards and the battery-trend computation remain
 **Complexity:** Low
-**Estimated time:** 5–7 h
+**Estimated time:** 4–6 h remaining
 **Sprint:** 01 (misdetect alarm), 05 (rest)
+
+**2026-07-31: telegraf v7 cutover DONE and verified end-to-end.** gisebo-01
+is decommissioned and the operator approved a hard cutoff, so
+`backend/telegraf.conf` (now versioned in-repo) speaks v7 directly: `f_port`
+tag (the mode/frame-kind tripwire — 11 PROD, 21 DEV, 10 = probe-misdetect
+signature), `rssi`/`snr` link margin, `f_cnt`, and the data/fault/verbose
+field sets. Verified live: a synthetic v7 POST returned 204 and the fields
+landed in influx (`device_id=claude-config-test`, deletable). Item 4 of the
+2026-07-29 additions below (cutover schema inventory) is thereby resolved:
+the persisted set is what `backend/telegraf.conf` lists; `uptime_h`,
+`ram_count`, `panel_ma_min/mean/max`, `panel_v_min/max`,
+`clarity_converging`, `ina219_seen` and the string arrays (`faults`,
+`reset_causes` — their numeric twins `fault_bits`/`reset_cause` are kept)
+were deliberately not persisted. Still open here: the grafana dashboards on
+the v7 fields, the alarm rules below (FPort-10 misdetect, `fault_bits > 0`,
+252-in-slot-0, clock-valid), the battery-trend slope computation, and the
+clarity gating for data frames.
 
 **2026-07-29 additions from the code review and item 24b.** Two backend
 responsibilities accumulated here because the payload and a stateless TTN
