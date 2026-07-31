@@ -646,6 +646,15 @@ Uplinks are the only instrument — there is no bench testing and no test hardwa
 
 ## 11. Hardware BOM decisions
 
+**2026-07-31 addition — panel mounting is decided, see `docs/panel-placement-guidance.md`.**
+Face south (0 to 10 deg west is all within ~1% in the binding season) and use
+the holder's full 15 deg tilt from vertical: +36% in July, +13% at equinox,
+-0.1% at winter solstice, and better snow shedding. Do NOT choose the "optimal
+annual" shallow tilt — the system is hard-clamped at ~116 mA (proven with an
+independent irradiance reference), so summer collection above the clamp is
+discarded and harvest scales with hours-at-clamp rather than peak irradiance.
+That same clamp caps the value of a larger panel unless the charger changes too.
+
 **2026-07-29 addition — coulomb counter for any future board revision.** If
 gross harvest measurement ever becomes a requirement, the correct part is an
 LTC2942-class I2C gas gauge (<100 µA, integrates through the sense resistor
