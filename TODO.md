@@ -1489,3 +1489,196 @@ bus-below, terminated 0 mA + Voc, night 0 mA + backfeed) plus the margins.
 Over the air, the same test that exposed this: after a flash, `sun_ewma` must
 **decrease between consecutive night frames** — the one behaviour this device
 has never shown. Watch the first night after deployment of the fix.
+
+---
+
+## 27. Water-plausibility check: catch a sensor that reads valid but wrong
+
+**Status:** Not started. Proposed 2026-08-01 from the gisebo-01 failure review;
+the only DS18B20 failure class the diagnostics currently miss **entirely**.
+**Complexity:** Low–Medium
+**Estimated time:** 3–5 h
+**Sprint:** 07
+
+### Problem
+
+The fault frame detects 17 of the 20 realistic physical failure causes
+(enumerated in the 2026-08-01 review). The three it misses share one shape:
+**the reading is valid, plausible and wrong.**
+
+- sensor lifted out of the water (lake level dropped, mount failed, cable pulled)
+- sensor frozen into ice
+- heavy biofouling or silt burial
+
+In all three the device reports perfect health and the data is meaningless. That
+is the same shape as every defect this project has actually suffered — the
+frozen INA219 looked healthy for a night, the night-blind sun predicate looked
+healthy for months — so it is the class most worth closing.
+
+### Solution
+
+Water has enormous thermal mass; air does not. A submerged sensor cannot move
+more than a few tenths of a degree between 30-minute samples, while air can
+swing several degrees. The device already holds **six samples per batch**, so
+the signal is free:
+
+- flag when the batch's max−min spread exceeds a threshold (start ~3 °C), and/or
+- flag when any sample-to-sample delta exceeds ~1.5 °C
+
+Pure logic over the existing `dataBuffer`, so it belongs in a header
+(`season.h` neighbours, or a new `sensor_plausibility.h`) and is fully
+host-testable. One new fault bit, `DIAG_FAULT_TEMP_IMPLAUSIBLE`, landed in
+`diagnostics.h` + the `.ino` + the decoder together per the contract rule.
+
+**Thresholds must be justified, not guessed.** gisebo-04's fridge data and
+gisebo-01's production history both contain long runs of genuine submerged
+water; derive the real distribution of per-interval deltas from them and set
+the threshold well outside it. Note the interval varies (1 min to 7 days), so
+the threshold should scale with the interval or be expressed as °C/hour.
+
+**Forward-usable:** v4's multi-sensor work needs exactly this to attribute
+readings to the right sensor, and an air sensor would make the test far
+stronger (water and air diverge sharply when the probe surfaces).
+
+### Verification
+
+Host tests from real captured runs: submerged sequences must not trip, and a
+synthetic "lifted into air" sequence must. Over the air, the fault must stay
+clear on gisebo-05's tank/windowsill data — noting that direct sun on the sensor
+already produces >30 °C excursions, so the threshold must tolerate the bench
+environment or the test unit will cry wolf.
+
+---
+
+## 28. Explicit DS18B20 status code instead of a boolean
+
+**Status:** Not started. Proposed 2026-08-01.
+**Complexity:** Low
+**Estimated time:** 2–3 h
+**Sprint:** 07
+
+### Problem
+
+`DiagInputs.ds18ReadValid` is a bool, so the fault frame can say "the read
+failed" but not *how*. Three physically different faults collapse into one bit:
+
+| actual fault | current signal | different repair? |
+|---|---|---|
+| CRC mismatch (cable length, EMI, weak pull-up) | `read_fail` | yes — bus integrity |
+| stuck at the 85 °C power-on scratchpad default | `read_fail`, payload byte 252 | yes — conversion never completes |
+| value outside the water range | `read_fail` or a sentinel | maybe environmental |
+
+The 85 °C case is *inferable* today by cross-reading the data payload's byte 252
+against the fault frame, which is exactly the kind of two-source reasoning that
+wastes time during an incident. gisebo-01 needed only `ds18Count`, but a
+marginal-bus unit would need this.
+
+### Solution
+
+Replace the bool with a 3-bit status in the fault frame:
+`OK / NOT_FOUND / CRC_FAIL / STUCK_85 / OUT_OF_RANGE / AMBIGUOUS`. Fits in spare
+bits of an existing byte or costs one new byte; bump `DIAG_SCHEMA_VERSION` to 2
+and give the decoder a schema branch, following the pattern already established
+by verbose schema 2 and 3.
+
+`DallasTemperature` exposes CRC validity, and 85.00 °C exactly is a recognisable
+sentinel — but note a real sensor **can** legitimately read 85 °C in direct sun,
+so the check should require the exact power-on value and preferably corroborate
+with a failed conversion rather than the value alone.
+
+### Verification
+
+Host tests per status value; over the air, an unplugged sensor must report
+`NOT_FOUND` and a healthy one `OK`.
+
+---
+
+## 29. Consecutive-failure counter for the sensor
+
+**Status:** Not started. Proposed 2026-08-01.
+**Complexity:** Low
+**Estimated time:** ~1 h
+**Sprint:** 07
+
+### Problem
+
+"Failed once" and "failed 400 times in a row" carry completely different
+urgency and completely different diagnoses — a transient bus glitch versus a
+severed cable — and the fault frame currently cannot distinguish them. Worse,
+the diagnostic rate limiter means a persistent fault is reported at most once a
+day, so the *frequency* of failure is invisible from the frames alone.
+
+### Solution
+
+One saturating byte in the fault frame: consecutive failed reads since the last
+success, cleared on any good read. Cheap, and it converts a binary alarm into a
+triage signal. Persist it in the `.noinit` struct so it survives the
+join-failure reset (a fault that spans reboots is a different animal from one
+that does not).
+
+### Verification
+
+Host tests for saturation and clear-on-success; over the air, the counter must
+rise monotonically on a disconnected sensor and reset the moment one is
+attached.
+
+---
+
+## 30. Retry the sensor read within the wake
+
+**Status:** Not started. Proposed 2026-08-01.
+**Complexity:** Low
+**Estimated time:** 1–2 h
+**Sprint:** 07
+
+### Problem
+
+`readAndBufferSensors()` reads once per wake. A single transient — an EMI burst,
+a marginal CRC, a momentary contact — costs the whole interval's sample, and is
+indistinguishable from a hard failure.
+
+### Solution
+
+On a failed read, re-request conversion and read again (once, maybe twice). Cost
+is 750 ms **only in the failure path**, and the wake already spends that long in
+the conversion window, so a healthy device pays nothing. Two benefits: marginal
+buses may self-heal into a usable reading, and "failed twice in a row within one
+wake" is much stronger evidence of a hard fault than one miss.
+
+**Interaction to respect:** the retry must sit inside the existing conversion
+window accounting (measured from `convStart`), and must not extend the PROD wake
+enough to matter for battery. Feeds item 29's counter — count wake-level
+failures, not individual attempts.
+
+### Verification
+
+Host-test the decision logic (attempt budget, when to give up); on the bench,
+an intermittent connection should show materially fewer lost samples than today.
+
+---
+
+## 31. Report the DS18B20 ROM id
+
+**Status:** Not started. Proposed 2026-08-01. Lowest priority of the five.
+**Complexity:** Low
+**Estimated time:** 2–3 h
+**Sprint:** 07 or later
+
+### Problem
+
+Nothing on the wire identifies *which* physical sensor is attached. A swapped
+sensor, a phantom device, or a sensor that enumerates with a corrupt ROM all
+look alike. Minor today with one sensor per unit; it stops being minor in v4,
+where pin-per-role still wants to confirm identity.
+
+### Solution
+
+Report the low 3 bytes of the 64-bit ROM code in the fault frame. Enough to
+detect a change without spending 8 bytes. The ROM also carries its own CRC, so a
+ROM read that fails CRC is direct evidence of bus corruption — complementing
+item 28's `CRC_FAIL` on the scratchpad.
+
+### Verification
+
+Host tests on the encode; over the air, the value must be stable across reboots
+and change if the sensor is swapped.
