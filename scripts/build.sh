@@ -25,9 +25,14 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-MODE=release
-[ "${1:-}" = "--dev" ] && MODE=dev
-[ "${1:-}" = "--fixed-keys" ] && MODE=fixedkeys
+# An unrecognised argument must not fall through to a release build -- the
+# strictest mode is the worst possible interpretation of a typo.
+case "${1:-}" in
+  "")            MODE=release ;;
+  --dev)         MODE=dev ;;
+  --fixed-keys)  MODE=fixedkeys ;;
+  *) echo "ERROR: unknown argument '${1}' (expected no argument, --dev, or --fixed-keys)"; exit 1 ;;
+esac
 
 EXTRA=""
 LABEL=""
@@ -35,6 +40,9 @@ if [ "$MODE" = "fixedkeys" ]; then
   [ -f fixed_keys.h ] || { echo "ERROR: --fixed-keys needs fixed_keys.h (gitignored)"; exit 1; }
   EXTRA=" -DFW_FIXED_KEYS"
   LABEL="$(grep -oP 'FIXED_DEVEUI_MSB\[8\] = \{ \K[^}]*' fixed_keys.h | sed 's/0x//g; s/[ ,]//g' | tr 'a-f' 'A-F')"
+  # The image name IS the identity warning; an empty label would ship an
+  # unlabelled device-specific binary.
+  [ -n "$LABEL" ] || { echo "ERROR: could not extract FIXED_DEVEUI_MSB from fixed_keys.h"; exit 1; }
   echo "FIXED-KEYS build for DevEUI ${LABEL} -- device-specific, do not reuse"
 fi
 
