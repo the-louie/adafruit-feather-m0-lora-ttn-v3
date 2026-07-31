@@ -34,7 +34,7 @@ LABEL=""
 if [ "$MODE" = "fixedkeys" ]; then
   [ -f fixed_keys.h ] || { echo "ERROR: --fixed-keys needs fixed_keys.h (gitignored)"; exit 1; }
   EXTRA=" -DFW_FIXED_KEYS"
-  LABEL="$(grep -oP 'FIXED_DEVEUI_MSB\[8\] = \{ \K[^}]*' fixed_keys.h | tr -d ' 0x,' | tr 'a-f' 'A-F')"
+  LABEL="$(grep -oP 'FIXED_DEVEUI_MSB\[8\] = \{ \K[^}]*' fixed_keys.h | sed 's/0x//g; s/[ ,]//g' | tr 'a-f' 'A-F')"
   echo "FIXED-KEYS build for DevEUI ${LABEL} -- device-specific, do not reuse"
 fi
 
