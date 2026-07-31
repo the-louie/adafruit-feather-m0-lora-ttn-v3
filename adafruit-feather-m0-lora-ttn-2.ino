@@ -241,7 +241,7 @@ static bool     bootDiagSent = false;  // has the once-per-boot diagnostic frame
 // Sensor-diagnostics state (TODO items 27-31).
 static uint8_t  g_ds18Status = DS18_NOT_FOUND; // Ds18Status of the last wake's read
 static bool     g_tempImplausible = false;     // valid reading, impossible water step
-static uint8_t  g_ds18Rom[3] = {0, 0, 0};      // low 3 bytes of the sensor ROM serial
+static uint8_t  g_ds18Rom[3] = {0, 0, 0};      // last sensor SEEN this boot (ds18CaptureRom)
 static float    g_prevTempC = NAN;             // last VALID reading, for the step check
 
 // Verbose DEV diagnostics (diagnostics.h) -- a full-state snapshot on its own
@@ -494,6 +494,47 @@ void onEvent(ev_t ev) {
 // DS18B20 conversion time at 12-bit resolution.
 #define DALLAS_CONV_MS 750
 
+// Wait out the remainder of a conversion window measured from startMs.
+//
+// PROD: plain delay. NOT LowPower.idle() -- ArduinoLowPower's alarm has
+// ONE-SECOND granularity (setAlarmIn() does `rtc.setAlarmEpoch(now +
+// millis/1000)`), so idle(750) truncates to a zero-second alarm and returns
+// immediately. The DS18B20 has not finished converting, and getTempCByIndex()
+// then returns the PREVIOUS conversion: every reading lagged one wake interval.
+// That was aad7bca (2026-03-09), a power optimisation that saved nothing
+// measurable -- quiescent draw dominates -- and silently corrupted PROD data
+// for four months. delay() is safe HERE SPECIFICALLY: the radio is idle during
+// sensor conversion, so the no-delay()-near-the-radio rule does not apply. Do
+// not "optimise" this back.
+//
+// DEV: spend the window servicing LMIC so USB and the MAC layer stay alive.
+// (This path was never affected by the idle() defect -- which is exactly why
+// bench testing could never have found it.)
+static void ds18ConversionWait(uint32_t startMs) {
+  if (runMode == 0) {
+    uint32_t elapsed = millis() - startMs;
+    if (elapsed < DALLAS_CONV_MS) {
+      delay(DALLAS_CONV_MS - elapsed);
+    }
+  } else {
+    while (millis() - startMs < DALLAS_CONV_MS) {
+      os_runloop_once();
+      delay(1); // Small delay to prevent watchdog resets
+    }
+  }
+}
+
+// Record the low 3 bytes of the ROM serial of sensor index 0 (TODO 31): enough
+// to notice a swapped sensor over the air. addr[0] is the family code, addr[7]
+// the CRC. On failure the previous value is kept -- the frame then names the
+// LAST sensor seen, which is exactly what a not-found fault should report.
+static void ds18CaptureRom() {
+  DeviceAddress a;
+  if (g_ds18Count >= 1 && sensors.getAddress(a, 0)) {
+    g_ds18Rom[0] = a[1]; g_ds18Rom[1] = a[2]; g_ds18Rom[2] = a[3];
+  }
+}
+
 void readAndBufferSensors() {
   // Measure the conversion window from requestTemperatures(), NOT from the end
   // of whatever we do inside it. The solar variant reads the INA219 in here
@@ -583,34 +624,7 @@ void readAndBufferSensors() {
 #endif
   }
 
-  if (runMode == 0) {
-    // PROD: plain delay for the remainder of the conversion window.
-    //
-    // NOT LowPower.idle(). ArduinoLowPower's alarm has ONE-SECOND granularity
-    // -- setAlarmIn() does `rtc.setAlarmEpoch(now + millis/1000)`, so idle(750)
-    // truncates to a zero-second alarm and returns immediately. The DS18B20 has
-    // not finished converting, and getTempCByIndex() then returns the PREVIOUS
-    // conversion: every reading lagged one wake interval. That was aad7bca
-    // (2026-03-09), a power optimisation that saved nothing measurable --
-    // quiescent draw dominates -- and silently corrupted PROD data for four
-    // months. This is that commit reverted.
-    //
-    // delay() is safe HERE SPECIFICALLY: the radio is idle during sensor
-    // conversion, so the no-delay()-near-the-radio rule does not apply. Do not
-    // "optimise" this back.
-    uint32_t elapsed = millis() - convStart;
-    if (elapsed < DALLAS_CONV_MS) {
-      delay(DALLAS_CONV_MS - elapsed);
-    }
-  } else {
-    // DEV: spend the window servicing LMIC so USB and the MAC layer stay alive.
-    // (This path was never affected by the idle() defect -- which is exactly why
-    // bench testing could never have found it.)
-    while (millis() - convStart < DALLAS_CONV_MS) {
-      os_runloop_once();
-      delay(1); // Small delay to prevent watchdog resets
-    }
-  }
+  ds18ConversionWait(convStart);
 
   // An ambiguous bus reports NaN, which encodeWaterTemperature maps to a null
   // slot and seasonUpdate ignores -- so the season holds rather than drifting on
@@ -618,36 +632,28 @@ void readAndBufferSensors() {
   float tempC = sensorBusAmbiguous ? NAN : sensors.getTempCByIndex(0);
 
   // One retry inside the wake (TODO 30). A single transient -- EMI, a marginal
-  // CRC, a momentary contact -- otherwise costs the whole interval's sample and
-  // is indistinguishable from a hard fault. The retry costs a second conversion
-  // window ONLY in the failure path; a healthy wake pays nothing. Failing twice
-  // inside one wake is much stronger evidence of a real fault than one miss.
-  if (tempC != tempC || tempC <= -100.0f) {
-    if (g_ds18Count == 0) {
-      // Re-enumerate on failure: the count is otherwise cached from setup(), so
-      // a sensor attached after boot (the bench swap-test on a broken unit)
-      // would never be noticed until a reboot. begin() re-runs the bus search.
-      sensors.begin();
-      g_ds18Count = sensors.getDeviceCount();
-      sensorBusAmbiguous = (g_ds18Count > 1);
-      if (g_ds18Count >= 1) {
-        DeviceAddress a;
-        if (sensors.getAddress(a, 0)) {
-          g_ds18Rom[0] = a[1]; g_ds18Rom[1] = a[2]; g_ds18Rom[2] = a[3];
-        }
-      }
-    }
-    if (g_ds18Count == 1 && !sensorBusAmbiguous) {
+  // CRC, a momentary contact, a sensor that browned out mid-conversion and now
+  // reads its 85.00 power-on default -- otherwise costs the whole interval's
+  // sample and is indistinguishable from a hard fault. The trigger is the same
+  // tested derivation that later produces the status byte, so EVERY failed
+  // flavour gets its one retry. The cost is a second conversion window plus a
+  // bus search, paid ONLY in the failure path; a healthy wake pays nothing.
+  // Failing twice inside one wake is much stronger evidence of a real fault
+  // than one miss.
+  if (ds18DeriveStatus(g_ds18Count, sensorBusAmbiguous, tempC) != DS18_OK) {
+    // Re-enumerate on ANY failure: the count is otherwise cached from setup(),
+    // and the cached topology may itself be the fault. A chain that failed open
+    // after boot should report not_found (the count is now truly 0), a sensor
+    // attached after boot (the bench swap-test on a broken unit) should be
+    // found, and a two-sensor bus reduced to one should leave AMBIGUOUS. The
+    // status byte describes the bus as it is NOW, not as setup() found it.
+    // begin() re-runs the bus search.
+    sensors.begin();
+    g_ds18Count = sensors.getDeviceCount();
+    sensorBusAmbiguous = (g_ds18Count > 1);
+    if (g_ds18Count == 1) {
       sensors.requestTemperatures();
-      uint32_t retryStart = millis();
-      if (runMode == 0) {
-        delay(DALLAS_CONV_MS);          // radio idle here, same as the main wait
-      } else {
-        while (millis() - retryStart < DALLAS_CONV_MS) {
-          os_runloop_once();
-          delay(1);
-        }
-      }
+      ds18ConversionWait(millis());
       tempC = sensors.getTempCByIndex(0);
     }
   }
@@ -656,6 +662,11 @@ void readAndBufferSensors() {
   // tested; the wire carries which flavour of failure, not just that one
   // happened.
   g_ds18Status = ds18DeriveStatus(g_ds18Count, sensorBusAmbiguous, tempC);
+  // A successful read refreshes the ROM identity: getTempCByIndex() re-searches
+  // the bus on every call, so a sensor swapped between wakes reads fine without
+  // any failure ever occurring -- only a fresh capture keeps bytes 13-15 of the
+  // fault frame naming the sensor actually attached.
+  if (g_ds18Status == DS18_OK) ds18CaptureRom();
 
   // Consecutive-failure streak (TODO 29), persisted: the daily fault rate limit
   // hides failure FREQUENCY, and a fault that spans the join-failure reset is a
@@ -672,7 +683,10 @@ void readAndBufferSensors() {
   // water physically can means the sensor is likely measuring air. Thresholds
   // derived from fleet data; see sensor_plausibility.h. No comparison on the
   // first sample after boot (dt would be fabricated -- same reasoning as the
-  // ingest guard) or across an invalid gap.
+  // ingest guard) or across an invalid gap. The previous reading is adopted
+  // either way, so one excursion raises the fault once, on its leading edge,
+  // rather than latching against an ever-staler baseline; a sensor left in air
+  // re-alerts on each new acute swing.
   if (g_ds18Status == DS18_OK) {
     g_tempImplausible = firstSampleAfterBoot
         ? false
@@ -1276,14 +1290,7 @@ void setup() {
   // temperature as if it were the surface is not.
   g_ds18Count = sensors.getDeviceCount();   // cached for the diagnostic frame
   sensorBusAmbiguous = (g_ds18Count > 1);
-  if (g_ds18Count >= 1) {
-    // Low 3 bytes of the ROM serial (TODO 31): enough to notice a swapped
-    // sensor over the air. addr[0] is the family code, addr[7] the CRC.
-    DeviceAddress a;
-    if (sensors.getAddress(a, 0)) {
-      g_ds18Rom[0] = a[1]; g_ds18Rom[1] = a[2]; g_ds18Rom[2] = a[3];
-    }
-  }
+  ds18CaptureRom();
   if (sensorBusAmbiguous) {
     logPrint(F("ERROR: more than one DS18B20 on A2, found "));
     logPrintln(g_ds18Count);

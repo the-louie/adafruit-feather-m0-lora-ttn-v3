@@ -42,9 +42,6 @@
 #define DIAG_FAULT_PERSIST_CORRUPT    0x0010u  // .noinit looked ours but the CRC failed
 #define DIAG_FAULT_TX_TIMEOUT         0x0020u  // an uplink failed (timeout or refused) since last report
 #define DIAG_FAULT_LOW_BATTERY        0x0040u  // vbat below the hard floor
-#define DIAG_FAULT_TEMP_IMPLAUSIBLE   0x0100u  // reading is VALID but moved faster than
-                                               // water physically can (sensor_plausibility.h)
-                                               // -- the sensor is likely out of the water
 #define DIAG_FAULT_INA219_OVF         0x0080u  // solar: math-overflow flag set -- current/power
                                                // out of range. Unreachable in our configuration
                                                // (shunt clips at +-400 mA first), so it firing
@@ -52,6 +49,9 @@
                                                // corrupted Calibration register, which
                                                // getCurrent_raw() rewrites on EVERY read. See
                                                // docs/ina219-register-reference.md section 3.
+#define DIAG_FAULT_TEMP_IMPLAUSIBLE   0x0100u  // reading is VALID but moved faster than
+                                               // water physically can (sensor_plausibility.h)
+                                               // -- the sensor is likely out of the water
 
 // Notably ABSENT: "INA219 missing". One binary serves every board, so a primary
 // unit legitimately finds no INA219 -- that is not a fault, and flagging it would
@@ -116,8 +116,11 @@ struct DiagInputs {
   uint8_t  sensorFailStreak; // consecutive wakes with a failed read, saturating;
                              // persisted so a fault spanning reboots is
                              // distinguishable from one that does not (TODO 29)
-  uint8_t  ds18Rom[3];     // low 3 bytes of the sensor ROM serial (0,0,0 = none):
-                             // enough to notice a swapped sensor (TODO 31)
+  uint8_t  ds18Rom[3];     // low 3 bytes of the ROM serial of the LAST sensor
+                             // seen this boot (0,0,0 = never saw one): enough
+                             // to notice a swapped sensor (TODO 31). Kept when
+                             // the sensor disappears, so a not_found frame
+                             // still names which sensor was lost
   bool     coldBoot;       // persist was NOT restored this boot
   bool     persistCorrupt; // magic+version matched but the CRC did not (decayed RAM)
   bool     ina219Present;   // the boot probe found the INA219
@@ -370,10 +373,10 @@ struct VerboseSnapshot {
                                   // commit this binary was built from;
                                   // 0x000000 = unofficial build (decoder
                                   // reports null). Ties every frame to an
-                                  // exact source state -- this week's defect
-                                  // hunts repeatedly needed "which firmware is
-                                  // this device actually running?" answered
-                                  // from the wire, not from memory.
+                                  // exact source state, so "which firmware is
+                                  // this device actually running?" is answered
+                                  // from the wire rather than from flash
+                                  // records.
 };
 
 // Serialise the verbose frame. Returns DIAG_VERBOSE_LEN. Byte map documented in
