@@ -32,8 +32,9 @@
 #include <string.h>
 
 #define PERSIST_MAGIC   0x54544E31u   // "TTN1" -- change if the MEANING changes
-#define PERSIST_VERSION 2             // bump on ANY field change to the body
+#define PERSIST_VERSION 3             // bump on ANY field change to the body
                                       //   v2: added diag rate-limit fields
+                                      //   v3: added sensorFailStreak
 
 struct PersistState {
   uint32_t magic;
@@ -53,6 +54,9 @@ struct PersistState {
   uint32_t rtcEpoch;             // stashed before NVIC_SystemReset (S03-06)
   uint16_t diagLastSentFaults;   // diagnostics.h rate-limit latch: faults last reported
   uint32_t diagLastSentEpoch;    // ... and when (0 = never); survives soft resets
+  uint8_t  sensorFailStreak;     // consecutive failed sensor reads (TODO 29);
+                                 // persisted so the join-failure reset does not
+                                 // disguise a fault that spans reboots
 };
 
 // CRC-16/CCITT-FALSE. Small, no table, adequate for catching decayed RAM -- this

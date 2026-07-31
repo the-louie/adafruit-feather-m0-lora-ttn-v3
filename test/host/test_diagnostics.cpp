@@ -8,6 +8,7 @@
 
 #include "../../diagnostics.h"
 #include <cstdio>
+#include <cmath>
 
 static int failures = 0;
 
@@ -24,7 +25,7 @@ static DiagInputs healthy() {
   in.resetCause = 0x40;      // SYST (system reset request)
   in.bootCounter = 1;
   in.ds18Count = 1;
-  in.ds18ReadValid = true;
+  in.ds18Status = DS18_OK;
   in.coldBoot = false;
   in.persistCorrupt = false;
   in.ina219Present = true;
@@ -49,8 +50,25 @@ int main() {
     check(diagComputeFaults(&in) == DIAG_FAULT_DS18B20_NOT_FOUND, "count 0 -> DS18B20 not found"); }
   { DiagInputs in = healthy(); in.ds18Count = 2;
     check(diagComputeFaults(&in) == DIAG_FAULT_DS18B20_BUS_AMBIG, "count 2 -> bus ambiguous"); }
-  { DiagInputs in = healthy(); in.ds18ReadValid = false;
+  { DiagInputs in = healthy(); in.ds18Status = DS18_CRC_FAIL;
     check(diagComputeFaults(&in) == DIAG_FAULT_DS18B20_READ_FAIL, "1 device, bad read -> read fail"); }
+  { DiagInputs in = healthy(); in.ds18Status = DS18_STUCK_85;
+    check(diagComputeFaults(&in) == DIAG_FAULT_DS18B20_READ_FAIL,
+          "stuck-85 raises READ_FAIL; the status byte says which flavour"); }
+  { DiagInputs in = healthy(); in.tempImplausible = true;
+    check(diagComputeFaults(&in) == DIAG_FAULT_TEMP_IMPLAUSIBLE,
+          "implausible water step -> its own fault bit (TODO 27)"); }
+
+  // Status derivation (TODO 28): pure function of what the wake observed.
+  check(ds18DeriveStatus(0, false, NAN) == DS18_NOT_FOUND, "derive: count 0 -> NOT_FOUND");
+  check(ds18DeriveStatus(2, true, 20.0f) == DS18_AMBIGUOUS, "derive: count 2 -> AMBIGUOUS");
+  check(ds18DeriveStatus(1, false, -127.0f) == DS18_CRC_FAIL, "derive: -127 -> CRC/no-response");
+  check(ds18DeriveStatus(1, false, NAN) == DS18_CRC_FAIL, "derive: NaN -> CRC/no-response");
+  check(ds18DeriveStatus(1, false, 85.0f) == DS18_STUCK_85, "derive: exactly 85.00 -> STUCK_85");
+  check(ds18DeriveStatus(1, false, 84.9f) == DS18_OUT_OF_RANGE, "derive: 84.9 -> out of range, NOT stuck");
+  check(ds18DeriveStatus(1, false, 72.0f) == DS18_OUT_OF_RANGE, "derive: 72 -> out of range");
+  check(ds18DeriveStatus(1, false, 21.5f) == DS18_OK, "derive: a sane reading -> OK");
+  check(ds18DeriveStatus(1, false, -0.5f) == DS18_OK, "derive: near-freezing water -> OK");
   { DiagInputs in = healthy(); in.ina219ReadOk = false;
     check(diagComputeFaults(&in) == DIAG_FAULT_INA219_READ_FAIL, "solar, INA219 bad read -> INA219 read fail"); }
   { DiagInputs in = healthy(); in.ina219Ovf = true;
@@ -90,7 +108,7 @@ int main() {
     uint16_t faults = diagComputeFaults(&in);
     uint8_t buf[DIAG_PAYLOAD_LEN];
     uint8_t n = diagEncode(buf, &in, faults);
-    check(n == DIAG_PAYLOAD_LEN, "diagEncode returns DIAG_PAYLOAD_LEN");
+    check(n == DIAG_PAYLOAD_LEN, "diagEncode returns DIAG_PAYLOAD_LEN (16, schema 2)");
     check(buf[0] == DIAG_SCHEMA_VERSION, "byte 0 is the schema version");
     check((buf[1] & DIAG_INFO_SOLAR) && (buf[1] & DIAG_INFO_DEV) &&
           (buf[1] & DIAG_INFO_CLOCK_VALID) && (buf[1] & DIAG_INFO_INA219_SEEN) &&
@@ -102,6 +120,19 @@ int main() {
     check(((buf[5] << 8) | buf[6]) == DIAG_FAULT_DS18B20_NOT_FOUND, "bytes 5-6 are the fault bitmap (BE)");
     check(((buf[7] << 8) | buf[8]) == 0x399F, "bytes 7-8 are the probe config (BE)");
     check(((buf[9] << 8) | buf[10]) == 4100, "bytes 9-10 are battery mV (BE)");
+    check(buf[0] == 2, "schema byte is 2");
+  }
+  { // schema-2 tail: status, streak, ROM
+    DiagInputs in = healthy();
+    in.ds18Status = DS18_STUCK_85;
+    in.sensorFailStreak = 42;
+    in.ds18Rom[0] = 0xAB; in.ds18Rom[1] = 0xCD; in.ds18Rom[2] = 0xEF;
+    uint8_t buf[DIAG_PAYLOAD_LEN];
+    diagEncode(buf, &in, diagComputeFaults(&in));
+    check(buf[11] == DS18_STUCK_85, "byte 11 is the DS18B20 status");
+    check(buf[12] == 42, "byte 12 is the failure streak");
+    check(buf[13] == 0xAB && buf[14] == 0xCD && buf[15] == 0xEF,
+          "bytes 13-15 are the ROM id, low 3 serial bytes");
   }
 
   // -------------------------------------------------------------------------

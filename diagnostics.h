@@ -23,9 +23,12 @@
 #include <stdint.h>
 
 // Schema version for the diagnostic payload. Bump if the byte layout changes;
-// the decoder keys on it.
-#define DIAG_SCHEMA_VERSION 1
-#define DIAG_PAYLOAD_LEN    11
+// the decoder keys on it. Schema 2 appends the DS18B20 status code, the
+// consecutive-failure streak and the sensor ROM id (bytes 11-15); schema-1
+// captures keep decoding.
+#define DIAG_SCHEMA_VERSION 2
+#define DIAG_PAYLOAD_LEN    16
+#define DIAG_PAYLOAD_V1_LEN 11
 
 // ---------------------------------------------------------------------------
 // Fault bitmap -- payload bytes 5..6, big-endian. Each bit is an ACTIONABLE
@@ -39,6 +42,9 @@
 #define DIAG_FAULT_PERSIST_CORRUPT    0x0010u  // .noinit looked ours but the CRC failed
 #define DIAG_FAULT_TX_TIMEOUT         0x0020u  // an uplink failed (timeout or refused) since last report
 #define DIAG_FAULT_LOW_BATTERY        0x0040u  // vbat below the hard floor
+#define DIAG_FAULT_TEMP_IMPLAUSIBLE   0x0100u  // reading is VALID but moved faster than
+                                               // water physically can (sensor_plausibility.h)
+                                               // -- the sensor is likely out of the water
 #define DIAG_FAULT_INA219_OVF         0x0080u  // solar: math-overflow flag set -- current/power
                                                // out of range. Unreachable in our configuration
                                                // (shunt clips at +-400 mA first), so it firing
@@ -68,6 +74,36 @@
 // normal operation -- an unambiguous "about to die" signal for either variant.
 #define DIAG_LOW_BATT_MV 3400u
 
+// DS18B20 status, one code instead of a boolean (TODO 28): three physically
+// different faults used to collapse into one bit, and the 85 degC case was only
+// inferable by cross-reading the data payload against the fault frame.
+enum Ds18Status : uint8_t {
+  DS18_OK            = 0,
+  DS18_NOT_FOUND     = 1,  // nothing answered the OneWire bus
+  DS18_CRC_FAIL      = 2,  // enumerated, but the read came back -127: the
+                           // CRC/no-response class (DallasTemperature does not
+                           // distinguish the two; both mean "bus present but
+                           // unreliable" and the repair is bus integrity)
+  DS18_STUCK_85      = 3,  // exactly the 85.00 power-on scratchpad default:
+                           // conversion never ran. A real 85.00 reading is
+                           // indistinguishable -- accepted, since water at 85
+                           // is a bigger problem than a false fault
+  DS18_OUT_OF_RANGE  = 4,  // a number, but outside the -50..60 sane band
+  DS18_AMBIGUOUS     = 5,  // more than one device on the bus
+};
+
+// Derive the status from what the wake observed. Pure; the .ino supplies the
+// enumeration count, the ambiguity flag and the final (post-retry) reading.
+inline uint8_t ds18DeriveStatus(uint8_t count, bool busAmbiguous, float tempC) {
+  if (count == 0) return DS18_NOT_FOUND;
+  if (count > 1 || busAmbiguous) return DS18_AMBIGUOUS;
+  if (tempC != tempC || tempC <= -100.0f) return DS18_CRC_FAIL;
+  if (tempC == 85.0f) return DS18_STUCK_85;   // exact: the power-on default is
+                                              // representable exactly in float
+  if (tempC < -50.0f || tempC > 60.0f) return DS18_OUT_OF_RANGE;
+  return DS18_OK;
+}
+
 // Everything the diagnostic frame reports. The .ino fills this from live state.
 struct DiagInputs {
   bool     isSolar;
@@ -75,7 +111,13 @@ struct DiagInputs {
   uint8_t  resetCause;     // PM->RCAUSE (low byte)
   uint8_t  bootCounter;    // persist.bootCounter
   uint8_t  ds18Count;      // OneWire device count on the sensor bus
-  bool     ds18ReadValid;  // the last surface reading was a real number
+  uint8_t  ds18Status;     // Ds18Status: what the last wake's read actually was
+  bool     tempImplausible;// valid reading, impossible-for-water step (TODO 27)
+  uint8_t  sensorFailStreak; // consecutive wakes with a failed read, saturating;
+                             // persisted so a fault spanning reboots is
+                             // distinguishable from one that does not (TODO 29)
+  uint8_t  ds18Rom[3];     // low 3 bytes of the sensor ROM serial (0,0,0 = none):
+                             // enough to notice a swapped sensor (TODO 31)
   bool     coldBoot;       // persist was NOT restored this boot
   bool     persistCorrupt; // magic+version matched but the CRC did not (decayed RAM)
   bool     ina219Present;   // the boot probe found the INA219
@@ -95,7 +137,9 @@ inline uint16_t diagComputeFaults(const DiagInputs *in) {
   uint16_t f = 0;
   if (in->ds18Count == 0) f |= DIAG_FAULT_DS18B20_NOT_FOUND;
   if (in->ds18Count > 1)  f |= DIAG_FAULT_DS18B20_BUS_AMBIG;
-  if (in->ds18Count == 1 && !in->ds18ReadValid) f |= DIAG_FAULT_DS18B20_READ_FAIL;
+  if (in->ds18Count == 1 && in->ds18Status != DS18_OK)
+    f |= DIAG_FAULT_DS18B20_READ_FAIL;   // which flavour is in the status byte
+  if (in->tempImplausible) f |= DIAG_FAULT_TEMP_IMPLAUSIBLE;
   if (in->isSolar && in->ina219Present && !in->ina219ReadOk)
     f |= DIAG_FAULT_INA219_READ_FAIL;
   if (in->isSolar && in->ina219Present && in->ina219Ovf)
@@ -116,6 +160,9 @@ inline uint16_t diagComputeFaults(const DiagInputs *in) {
 //   5-6   fault bitmap, big-endian
 //   7-8   INA219 probe config register, big-endian (0x399F = healthy; 0 = none)
 //   9-10  battery millivolts, big-endian (raw mV; decoder divides by 1000)
+//   11    DS18B20 status (Ds18Status)                             [schema 2]
+//   12    consecutive-failure streak, saturating                  [schema 2]
+//   13-15 sensor ROM id, low 3 bytes of the serial (0 = none)     [schema 2]
 inline uint8_t diagEncode(uint8_t *buf, const DiagInputs *in, uint16_t faults) {
   buf[0] = DIAG_SCHEMA_VERSION;
   uint8_t info = 0;
@@ -134,6 +181,11 @@ inline uint8_t diagEncode(uint8_t *buf, const DiagInputs *in, uint16_t faults) {
   buf[8] = (uint8_t)(in->probeConfig & 0xFF);
   buf[9]  = (uint8_t)(in->vbatMv >> 8);
   buf[10] = (uint8_t)(in->vbatMv & 0xFF);
+  buf[11] = in->ds18Status;
+  buf[12] = in->sensorFailStreak;
+  buf[13] = in->ds18Rom[0];
+  buf[14] = in->ds18Rom[1];
+  buf[15] = in->ds18Rom[2];
   return DIAG_PAYLOAD_LEN;
 }
 
