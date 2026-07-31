@@ -195,11 +195,11 @@ console.log("\nv7 decoder -- diagnostic schema 2 (status, streak, ROM)");
   // Wrong length for the declared schema rejects loudly.
   check("diag2: 11 bytes with schema byte 2 errors",
         decode({ bytes: mk2(0,0,[0,0,0]).slice(0,11), fPort: 2, recvTime: RECV }).errors.length > 0);
-  // The new fault name decodes.
-  const f = new Array(16).fill(0); f[0]=2; f[1]=0x03; f[4]=1; f[5]=0x01; f[6]=0x00;
+  // The new fault name decodes: bytes 5-6 big-endian, bit 0x0100.
+  const f = new Array(16).fill(0); f[0] = 2; f[4] = 1; f[5] = 0x01; f[6] = 0x00;
   const fr = decode({ bytes: f, fPort: 2, recvTime: RECV });
   check("diag2: fault bit 0x0100 names temp_implausible",
-        decode({ bytes: (()=>{const b=new Array(16).fill(0);b[0]=2;b[4]=1;b[5]=0x01;b[6]=0x00;return b;})(), fPort: 2, recvTime: RECV }).data.faults.includes("temp_implausible"));
+        fr.data.faults.includes("temp_implausible"));
 }
 
 console.log("\nv7 decoder -- verbose schema 3 (firmware commit hash)");
