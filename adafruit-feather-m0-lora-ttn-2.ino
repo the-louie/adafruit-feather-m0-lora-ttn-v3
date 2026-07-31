@@ -125,10 +125,33 @@ static void deriveBoardCredentials() {
   deriveCredentials(serial, KEYGEN_SALT, KEYGEN_SALT_LEN, g_creds);
 }
 
-// LMIC wants the DevEUI little-endian; g_creds.devEui is MSB-first.
-void os_getDevEui(u1_t *buf) { euiToLmicLE(g_creds.devEui, buf); }
+// Legacy-device key override, compiled ONLY when FW_FIXED_KEYS is defined
+// (scripts/build.sh --fixed-keys). Devices provisioned before credentials
+// became derived from the silicon serial hold a TTN-issued DevEUI that this
+// firmware would otherwise replace with a derived one TTN has never seen --
+// the join would be rejected and the unit would go silent. Pinning the
+// original identity keeps such a device on its existing registration,
+// decoder and backend path. See fixed_keys.h (gitignored, holds a root key).
+#ifdef FW_FIXED_KEYS
+#include "fixed_keys.h"
+#endif
+
+// LMIC wants the DevEUI little-endian; the canonical form is MSB-first.
+void os_getDevEui(u1_t *buf) {
+#ifdef FW_FIXED_KEYS
+  euiToLmicLE(FIXED_DEVEUI_MSB, buf);
+#else
+  euiToLmicLE(g_creds.devEui, buf);
+#endif
+}
 // AppKey is MSB-first for LMIC -- same as the canonical derived form.
-void os_getDevKey(u1_t *buf) { memcpy(buf, g_creds.appKey, 16); }
+void os_getDevKey(u1_t *buf) {
+#ifdef FW_FIXED_KEYS
+  memcpy(buf, FIXED_APPKEY, 16);
+#else
+  memcpy(buf, g_creds.appKey, 16);
+#endif
+}
 
 // Interval index table: 0 = unused (5 min default if ever read), 1-10 = 1,5,15,30,60,120,360,720,1440,10080 minutes (in seconds)
 static const uint32_t kIntervalSecondsByIndex[11] = {
@@ -1139,6 +1162,10 @@ void setup() {
     for (int i = 0; i < 16; i++) { if (g_creds.appKey[i] < 0x10) Serial.print('0'); Serial.print(g_creds.appKey[i], HEX); }
     Serial.println();
     Serial.println(F("JoinEUI: 0000000000000001"));
+#ifdef FW_FIXED_KEYS
+    Serial.println(F("*** FIXED-KEYS BUILD -- " FIXED_KEYS_LABEL " ONLY ***"));
+    Serial.println(F("*** derived credentials are OVERRIDDEN; do not flash to any other board ***"));
+#endif
     Serial.print(F("Firmware commit: "));
     if ((uint32_t)FW_GIT_HASH24 == 0) Serial.println(F("(unofficial build)"));
     else Serial.println((uint32_t)FW_GIT_HASH24, HEX);

@@ -18,3 +18,6 @@ build/
 
 # Root-owned session junk
 tmp/
+
+# One-off legacy key override -- contains a root key, never commit
+fixed_keys.h
