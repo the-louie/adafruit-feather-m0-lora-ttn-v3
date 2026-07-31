@@ -67,11 +67,11 @@ Both share the season machine and the voltage-band hysteresis. The solar variant
 
 | device | protocol | status |
 |---|---|---|
-| gisebo-01 | 9-byte v6, 30 min | **PRODUCTION, frozen; retired at cutover** |
+| gisebo-01 | v7 (fixed-keys diagnostic build) | **RETIRED 2026-08-01** — DS18B20 chain failed open (`ds18b20_count: 0`); do not plan around it |
 | gisebo-04 | 8-byte v5, 5 min fixed | test unit in a fridge (cold lithium test) — **do not disturb** |
 | gisebo-05 | v7 solar | **LIVE on the bench (DEV-strapped, FPort 21): flashed 2026-07-27, joined, solar detected, reporting** |
 
-gisebo-05 **replaces** gisebo-01 (sprint 08 cutover); the two are never in production together. Decoders are per-device (`decoders/`), one per unit. gisebo-05 was registered in TTN (`telamon-temperature`, EU868) and flashed with the current firmware 2026-07-27; its OTAA keys are derived on boot from the silicon serial, so its TTN DevEUI is the derived one (`86A2A75D253A16AC`), not the app-block DevEUI in the older provisioning note.
+gisebo-05 **replaces** gisebo-01, which was retired 2026-08-01 after its sensor chain failed open — the cutover is now unblocked from gisebo-01's side. Decoders are per-device (`decoders/`), one per unit. gisebo-05 was registered in TTN (`telamon-temperature`, EU868) and flashed with the current firmware 2026-07-27; its OTAA keys are derived on boot from the silicon serial, so its TTN DevEUI is the derived one (`86A2A75D253A16AC`), not the app-block DevEUI in the older provisioning note.
 
 ## DEV vs PROD
 
