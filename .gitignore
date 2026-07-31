@@ -21,3 +21,4 @@ tmp/
 
 # One-off legacy key override -- contains a root key, never commit
 fixed_keys.h
+tools/ds18b20-diag/build/
