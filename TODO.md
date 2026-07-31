@@ -605,7 +605,14 @@ formatter cannot carry them:
    clarity for ~24 h (one `SUN_EWMA_TAU_S`) after an `f_cnt` reset /
    `cold_boot`. `expected_daylight_fraction` is emitted alongside for exactly
    this purpose.
-2. **The robust solar-input metric is the battery-voltage TREND, computed
+2. **A horizontal irradiance reference is available as a covariate** (PWS
+   IJNKPING9, Norrängen, 5-min W/m², behind the same eastern hill). Use it to
+   qualify the battery-trend alarm: a falling trend during a high-irradiance
+   week is a device fault, the same trend during a dull week is weather. Also
+   usable for part of item 15's instantaneous-channel check without a DMM. See
+   `docs/dev-notes/20260731-0915_pws-reference-calibration.md`.
+
+3. **The robust solar-input metric is the battery-voltage TREND, computed
    here.** Decided 2026-07-29 (`docs/solar-input-measurement-research.md`):
    `harvest_mah` carries a structural ±40%-class error in PROD, while the pack
    itself integrates net charge physically and `battery_v` rides every frame.
@@ -615,7 +622,7 @@ formatter cannot carry them:
    Slope >= 0 means harvest covers consumption, which is the question that
    matters.
 
-3. **Cutover schema inventory.** The decoder now also emits `uptime_s`,
+4. **Cutover schema inventory.** The decoder now also emits `uptime_s`,
    `uptime_h`, `cycle_count`, `ram_count`, `panel_ma_min/mean/max`,
    `panel_v_min/max`, `clarity_converging`, and the `ina219_ovf` fault name.
    The shared webhook discards unknown fields during development, but the
