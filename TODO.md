@@ -1569,7 +1569,7 @@ environment or the test unit will cry wolf.
 
 ## 28. Explicit DS18B20 status code instead of a boolean
 
-**Status:** **IMPLEMENTED 2026-08-01** (`03392e3`) — fault frame schema 2 byte 11, `ds18DeriveStatus()` host-tested. Pending flash-verify: healthy unit reports `ds18_status: "ok"`.
+**Status:** **IMPLEMENTED 2026-08-01** (`03392e3`), **wire-verified 2026-08-01 14:23** — the first boot of `95232b` reported `ds18_status: "not_found"` for a genuinely disconnected sensor (mid-rehousing), the exact gisebo-01 signature, 20 s after boot. Remaining flash-verify: `"ok"` once a working sensor is attached.
 **Complexity:** Low
 **Estimated time:** 2–3 h
 **Sprint:** 07
@@ -1612,7 +1612,7 @@ Host tests per status value; over the air, an unplugged sensor must report
 
 ## 29. Consecutive-failure counter for the sensor
 
-**Status:** **IMPLEMENTED 2026-08-01** (`03392e3`) — byte 12, persisted (PERSIST_VERSION 3). Pending flash-verify: 0 on a healthy unit, rising on a disconnected sensor.
+**Status:** **IMPLEMENTED 2026-08-01** (`03392e3`), **wire-verified 2026-08-01 14:23** — `sensor_fail_streak: 1` on the first failed wake of the `95232b` boot, counting as designed. Remaining flash-verify: reset to 0 on a working sensor.
 **Complexity:** Low
 **Estimated time:** ~1 h
 **Sprint:** 07
@@ -1676,7 +1676,7 @@ an intermittent connection should show materially fewer lost samples than today.
 
 ## 31. Report the DS18B20 ROM id
 
-**Status:** **IMPLEMENTED 2026-08-01** (`03392e3`) — bytes 13–15, captured at boot and on re-enumeration. Pending flash-verify: stable across reboots.
+**Status:** **IMPLEMENTED 2026-08-01** (`03392e3`, ROM refresh on success `6e7ca90`) — bytes 13–15. Wire-verified 2026-08-01 14:23: `ds18_rom: null` correctly reported with no sensor ever seen. Remaining flash-verify: real ROM captured and stable once the deployment sensor works (that value becomes the item's reference identity).
 **Complexity:** Low
 **Estimated time:** 2–3 h
 **Sprint:** 07 or later
