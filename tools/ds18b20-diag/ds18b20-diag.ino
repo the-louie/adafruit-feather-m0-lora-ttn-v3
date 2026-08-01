@@ -32,7 +32,12 @@
 
 #include <OneWire.h>
 
+// Default A0 matches the gisebo-03 bench rig; build with
+// --build-property "compiler.cpp.extra_flags=-DONEWIRE_PIN=A2" for a board
+// wired like the production units (gisebo-05: DQ on A2).
+#ifndef ONEWIRE_PIN
 #define ONEWIRE_PIN A0
+#endif
 #define LED_PIN     13
 
 // DS18B20 function commands (datasheet, "ROM commands" / "function commands").
