@@ -1699,3 +1699,38 @@ item 28's `CRC_FAIL` on the scratchpad.
 
 Host tests on the encode; over the air, the value must be stable across reboots
 and change if the sensor is swapped.
+
+## 32. Send one "all clear" diagnostic frame when the fault set empties
+
+**Status:** Not started
+**Complexity:** Low
+**Estimated time:** 1–2 h
+**Sprint:** next build
+
+### Problem
+
+The fault frame reports faults when they appear (promptly) and daily while
+they persist, but a fault that CLEARS is never announced — the wire goes
+silent and the last report stands. Discovered building the NOC dashboard
+2026-08-02: the 18:26 splash `temp_implausible` self-cleared within one wake,
+but every backend consumer (grafana "Hälsa" row, `fault_bits` stat, alerts)
+still showed the fault hours later, because the newest fault frame on record
+says so. PROD has no verbose heartbeat to contradict it. The dashboard now
+says "FEL RAPPORTERAT" instead of "FEL AKTIVT" as an honest label, but the
+backend genuinely cannot distinguish "cleared" from "still broken" today.
+
+### Solution
+
+In the diag send policy (`diagnostics.h`), track the last REPORTED fault set
+(already in the persist struct as `diagLastSentFaults`); when the current
+fault computation transitions from non-zero to zero, send ONE fault frame
+with `fault_bits: 0` (rate-limited like any other transition — the existing
+"new distinct fault" logic generalises to "fault set changed"). Cost: one
+extra 16-byte frame per fault episode. The decoder needs nothing — a zero
+bitmap already decodes as `faults: []`, `healthy: true`.
+
+### Verification
+
+Bench: induce a fault (unplug sensor one wake), replug; expect fault frame
+with the bit, then after the recovering wake a frame with `fault_bits: 0`.
+The NOC "Hälsa" row then flips back to FRISK on its own.
