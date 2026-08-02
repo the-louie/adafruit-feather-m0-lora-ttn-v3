@@ -1676,7 +1676,7 @@ an intermittent connection should show materially fewer lost samples than today.
 
 ## 31. Report the DS18B20 ROM id
 
-**Status:** **IMPLEMENTED 2026-08-01** (`03392e3`, ROM refresh on success `6e7ca90`) — bytes 13–15. Wire-verified 2026-08-01 14:23: `ds18_rom: null` correctly reported with no sensor ever seen. Remaining flash-verify: real ROM captured and stable once the deployment sensor works (that value becomes the item's reference identity).
+**Status:** **IMPLEMENTED 2026-08-01** (`03392e3`, ROM refresh on success `6e7ca90`) — bytes 13–15. Wire-verified 2026-08-01 14:23 (`null` with no sensor ever seen), and **CLOSED 2026-08-02**: the replaced production sensor reports `ds18_rom: "ffcf35"` — the deployment reference identity. Three distinct sensors were told apart on the wire during the bench work (`ff8437`, `0a1073` test units, `ffcf35` production), which is this item's purpose demonstrated live.
 **Complexity:** Low
 **Estimated time:** 2–3 h
 **Sprint:** 07 or later
