@@ -1,0 +1,1029 @@
+{
+ "annotations": {
+  "list": [
+   {
+    "builtIn": 1,
+    "datasource": {
+     "type": "grafana",
+     "uid": "-- Grafana --"
+    },
+    "enable": true,
+    "hide": true,
+    "iconColor": "rgba(0, 211, 255, 1)",
+    "name": "Annotations & Alerts",
+    "type": "dashboard"
+   }
+  ]
+ },
+ "editable": true,
+ "fiscalYearStartMonth": 0,
+ "graphTooltip": 0,
+ "id": 1,
+ "liveNow": false,
+ "panels": [
+  {
+   "gridPos": {
+    "h": 2,
+    "w": 24,
+    "x": 0,
+    "y": 0
+   },
+   "id": 11,
+   "options": {
+    "code": {
+     "language": "plaintext",
+     "showLineNumbers": false,
+     "showMiniMap": false
+    },
+    "content": "## Senaste Dygnet",
+    "mode": "markdown"
+   },
+   "pluginVersion": "13.0.1",
+   "targets": [],
+   "title": "",
+   "type": "text"
+  },
+  {
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": 0
+       },
+       {
+        "color": "#EAB839",
+        "value": 18
+       },
+       {
+        "color": "super-light-green",
+        "value": 20
+       },
+       {
+        "color": "dark-green",
+        "value": 24
+       }
+      ]
+     }
+    }
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 4,
+    "x": 0,
+    "y": 2
+   },
+   "hideTimeOverride": true,
+   "id": 3,
+   "options": {
+    "colorMode": "value",
+    "graphMode": "area",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "percentChangeColorMode": "standard",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "showPercentChange": false,
+    "textMode": "auto",
+    "wideLayout": true
+   },
+   "pluginVersion": "13.0.1",
+   "targets": [
+    {
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"temperature\")\r\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-01\" or (r[\"device_id\"] == \"gisebo-05\" and r[\"_time\"] >= 2026-08-02T16:26:00Z))\n  |> filter(fn: (r) => r[\"_value\"] >= -2.0)\n  |> drop(columns: [\"device_id\", \"host\"])\r\n  |> last()\r\n  |> yield(name: \"current_temperature\")",
+     "refId": "A"
+    }
+   ],
+   "timeFrom": "24h",
+   "title": "Senaste temperatur",
+   "type": "stat"
+  },
+  {
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "description": "V5, litium + konding. I en gr\u00e5 l\u00e5da p\u00e5 land med 10m kabel ut i vattnet. Termosensorn \u00e4r i en Alvedon tub.",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "fixedColor": "text",
+      "mode": "fixed"
+     },
+     "custom": {
+      "axisBorderShow": false,
+      "axisCenteredZero": false,
+      "axisColorMode": "text",
+      "axisLabel": "",
+      "axisPlacement": "auto",
+      "barAlignment": 0,
+      "barWidthFactor": 0.6,
+      "drawStyle": "line",
+      "fillOpacity": 0,
+      "gradientMode": "none",
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "insertNulls": 86400000,
+      "lineInterpolation": "linear",
+      "lineStyle": {
+       "fill": "solid"
+      },
+      "lineWidth": 3,
+      "pointSize": 5,
+      "scaleDistribution": {
+       "type": "linear"
+      },
+      "showPoints": "never",
+      "showValues": false,
+      "spanNulls": true,
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      },
+      "thresholdsStyle": {
+       "mode": "area"
+      }
+     },
+     "max": 25,
+     "min": 5,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "dark-purple",
+        "value": 0
+       },
+       {
+        "color": "dark-blue",
+        "value": 0
+       },
+       {
+        "color": "blue",
+        "value": 16
+       },
+       {
+        "color": "super-light-yellow",
+        "value": 18
+       },
+       {
+        "color": "dark-yellow",
+        "value": 21
+       },
+       {
+        "color": "green",
+        "value": 23
+       },
+       {
+        "color": "red",
+        "value": 26
+       }
+      ]
+     },
+     "unit": "celsius"
+    }
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 17,
+    "x": 4,
+    "y": 2
+   },
+   "id": 7,
+   "options": {
+    "annotations": {
+     "clustering": -1,
+     "multiLane": false
+    },
+    "legend": {
+     "calcs": [],
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": false
+    },
+    "tooltip": {
+     "hideZeros": false,
+     "mode": "single",
+     "sort": "none"
+    }
+   },
+   "pluginVersion": "13.0.1",
+   "targets": [
+    {
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "import \"date\"\r\n\r\nfrom(bucket: \"home_assistant\")\r\n  |> range(start: date.sub(d: 12h, from: v.timeRangeStart), stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"temperature\")\r\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-01\" or (r[\"device_id\"] == \"gisebo-05\" and r[\"_time\"] >= 2026-08-02T16:26:00Z))\n  |> filter(fn: (r) => r[\"_value\"] >= -2.0)\n  |> drop(columns: [\"device_id\", \"host\"])\r\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\r\n  |> yield(name: \"gisebo_01_temperature\")",
+     "refId": "A"
+    }
+   ],
+   "timeFrom": "24h",
+   "title": "Senaste dygnet",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "dark-blue",
+        "value": 0
+       },
+       {
+        "color": "#EAB839",
+        "value": 18
+       },
+       {
+        "color": "light-green",
+        "value": 20
+       },
+       {
+        "color": "dark-green",
+        "value": 24
+       }
+      ]
+     }
+    }
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 3,
+    "x": 21,
+    "y": 2
+   },
+   "hideTimeOverride": true,
+   "id": 4,
+   "options": {
+    "colorMode": "value",
+    "graphMode": "area",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "percentChangeColorMode": "standard",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "showPercentChange": false,
+    "textMode": "auto",
+    "wideLayout": true
+   },
+   "pluginVersion": "13.0.1",
+   "targets": [
+    {
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\r\n  |> range(start: -48h)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"temperature\")\r\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-01\" or (r[\"device_id\"] == \"gisebo-05\" and r[\"_time\"] >= 2026-08-02T16:26:00Z))\n  |> filter(fn: (r) => r[\"_value\"] >= -2.0)\n  |> drop(columns: [\"device_id\", \"host\"])\r\n  |> min()\r\n  |> yield(name: \"lowest_temperature\")",
+     "refId": "A"
+    }
+   ],
+   "timeFrom": "24h",
+   "title": "L\u00e4gsta temperatur",
+   "type": "stat"
+  },
+  {
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "dark-blue",
+        "value": 0
+       },
+       {
+        "color": "#EAB839",
+        "value": 18
+       },
+       {
+        "color": "super-light-green",
+        "value": 20
+       },
+       {
+        "color": "dark-green",
+        "value": 24
+       }
+      ]
+     }
+    }
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 3,
+    "x": 21,
+    "y": 6
+   },
+   "hideTimeOverride": true,
+   "id": 5,
+   "options": {
+    "colorMode": "value",
+    "graphMode": "area",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "percentChangeColorMode": "standard",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "showPercentChange": false,
+    "textMode": "auto",
+    "wideLayout": true
+   },
+   "pluginVersion": "13.0.1",
+   "targets": [
+    {
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\r\n  |> range(start: -48h)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"temperature\")\r\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-01\" or (r[\"device_id\"] == \"gisebo-05\" and r[\"_time\"] >= 2026-08-02T16:26:00Z))\n  |> filter(fn: (r) => r[\"_value\"] >= -2.0)\n  |> drop(columns: [\"device_id\", \"host\"])\r\n  |> max()\r\n  |> yield(name: \"highest_temperature\")",
+     "refId": "A"
+    }
+   ],
+   "timeFrom": "24h",
+   "title": "H\u00f6gsta temperatur",
+   "type": "stat"
+  },
+  {
+   "gridPos": {
+    "h": 2,
+    "w": 24,
+    "x": 0,
+    "y": 10
+   },
+   "id": 12,
+   "options": {
+    "code": {
+     "language": "plaintext",
+     "showLineNumbers": false,
+     "showMiniMap": false
+    },
+    "content": "## Senaste Veckan",
+    "mode": "markdown"
+   },
+   "pluginVersion": "13.0.1",
+   "targets": [],
+   "title": "",
+   "type": "text"
+  },
+  {
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "description": "V5, litium + konding. I en gr\u00e5 l\u00e5da p\u00e5 land med 10m kabel ut i vattnet. Termosensorn \u00e4r i en Alvedon tub.",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "fixedColor": "text",
+      "mode": "fixed"
+     },
+     "custom": {
+      "axisBorderShow": false,
+      "axisCenteredZero": false,
+      "axisColorMode": "text",
+      "axisLabel": "",
+      "axisPlacement": "auto",
+      "barAlignment": 0,
+      "barWidthFactor": 0.6,
+      "drawStyle": "line",
+      "fillOpacity": 0,
+      "gradientMode": "none",
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "insertNulls": 172800000,
+      "lineInterpolation": "linear",
+      "lineStyle": {
+       "fill": "solid"
+      },
+      "lineWidth": 3,
+      "pointSize": 5,
+      "scaleDistribution": {
+       "type": "linear"
+      },
+      "showPoints": "never",
+      "showValues": false,
+      "spanNulls": false,
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      },
+      "thresholdsStyle": {
+       "mode": "area"
+      }
+     },
+     "max": 25,
+     "min": 5,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "dark-purple",
+        "value": 0
+       },
+       {
+        "color": "dark-blue",
+        "value": 0
+       },
+       {
+        "color": "blue",
+        "value": 16
+       },
+       {
+        "color": "super-light-yellow",
+        "value": 18
+       },
+       {
+        "color": "dark-yellow",
+        "value": 21
+       },
+       {
+        "color": "green",
+        "value": 23
+       },
+       {
+        "color": "red",
+        "value": 26
+       }
+      ]
+     },
+     "unit": "celsius"
+    }
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 21,
+    "x": 0,
+    "y": 12
+   },
+   "id": 2,
+   "options": {
+    "annotations": {
+     "clustering": -1,
+     "multiLane": false
+    },
+    "legend": {
+     "calcs": [],
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": false
+    },
+    "tooltip": {
+     "hideZeros": false,
+     "mode": "single",
+     "sort": "none"
+    }
+   },
+   "pluginVersion": "13.0.1",
+   "targets": [
+    {
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "import \"date\"\r\n\r\nfrom(bucket: \"home_assistant\")\r\n  |> range(start: date.sub(d: 24h, from: v.timeRangeStart), stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"temperature\")\r\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-01\" or (r[\"device_id\"] == \"gisebo-05\" and r[\"_time\"] >= 2026-08-02T16:26:00Z))\n  |> filter(fn: (r) => r[\"_value\"] >= -2.0)\n  |> drop(columns: [\"device_id\", \"host\"])\r\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\r\n  |> yield(name: \"gisebo_01_temperature\")",
+     "refId": "A"
+    }
+   ],
+   "timeFrom": "7d",
+   "title": "Senaste veckan",
+   "type": "timeseries"
+  },
+  {
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "dark-blue",
+        "value": 0
+       },
+       {
+        "color": "#EAB839",
+        "value": 18
+       },
+       {
+        "color": "light-green",
+        "value": 20
+       },
+       {
+        "color": "dark-green",
+        "value": 24
+       }
+      ]
+     }
+    }
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 3,
+    "x": 21,
+    "y": 12
+   },
+   "hideTimeOverride": true,
+   "id": 9,
+   "options": {
+    "colorMode": "value",
+    "graphMode": "area",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "percentChangeColorMode": "standard",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "showPercentChange": false,
+    "textMode": "auto",
+    "wideLayout": true
+   },
+   "pluginVersion": "13.0.1",
+   "targets": [
+    {
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\r\n  |> range(start: -7d)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"temperature\")\r\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-01\" or (r[\"device_id\"] == \"gisebo-05\" and r[\"_time\"] >= 2026-08-02T16:26:00Z))\n  |> filter(fn: (r) => r[\"_value\"] >= -2.0)\n  |> drop(columns: [\"device_id\", \"host\"])\r\n  |> min()\r\n  |> yield(name: \"lowest_temperature\")",
+     "refId": "A"
+    }
+   ],
+   "timeFrom": "7d",
+   "title": "L\u00e4gsta temperatur (7d)",
+   "type": "stat"
+  },
+  {
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "mode": "thresholds"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "dark-blue",
+        "value": 0
+       },
+       {
+        "color": "#EAB839",
+        "value": 18
+       },
+       {
+        "color": "super-light-green",
+        "value": 20
+       },
+       {
+        "color": "dark-green",
+        "value": 24
+       }
+      ]
+     }
+    }
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 3,
+    "x": 21,
+    "y": 16
+   },
+   "hideTimeOverride": true,
+   "id": 10,
+   "options": {
+    "colorMode": "value",
+    "graphMode": "area",
+    "justifyMode": "auto",
+    "orientation": "auto",
+    "percentChangeColorMode": "standard",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "showPercentChange": false,
+    "textMode": "auto",
+    "wideLayout": true
+   },
+   "pluginVersion": "13.0.1",
+   "targets": [
+    {
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\r\n  |> range(start: -7d)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"temperature\")\r\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-01\" or (r[\"device_id\"] == \"gisebo-05\" and r[\"_time\"] >= 2026-08-02T16:26:00Z))\n  |> filter(fn: (r) => r[\"_value\"] >= -2.0)\n  |> drop(columns: [\"device_id\", \"host\"])\r\n  |> max()\r\n  |> yield(name: \"highest_temperature\")",
+     "refId": "A"
+    }
+   ],
+   "timeFrom": "7d",
+   "title": "H\u00f6gsta temperatur (7d)",
+   "type": "stat"
+  },
+  {
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "description": "V5, litium + konding. I en gr\u00e5 l\u00e5da p\u00e5 land med 10m kabel ut i vattnet. Termosensorn \u00e4r i en Alvedon tub.",
+   "fieldConfig": {
+    "defaults": {
+     "color": {
+      "fixedColor": "text",
+      "mode": "fixed"
+     },
+     "custom": {
+      "axisBorderShow": false,
+      "axisCenteredZero": false,
+      "axisColorMode": "text",
+      "axisLabel": "",
+      "axisPlacement": "auto",
+      "barAlignment": 0,
+      "barWidthFactor": 0.6,
+      "drawStyle": "line",
+      "fillOpacity": 0,
+      "gradientMode": "none",
+      "hideFrom": {
+       "legend": false,
+       "tooltip": false,
+       "viz": false
+      },
+      "insertNulls": 86400000,
+      "lineInterpolation": "linear",
+      "lineStyle": {
+       "fill": "solid"
+      },
+      "lineWidth": 3,
+      "pointSize": 5,
+      "scaleDistribution": {
+       "type": "linear"
+      },
+      "showPoints": "never",
+      "showValues": false,
+      "spanNulls": false,
+      "stacking": {
+       "group": "A",
+       "mode": "none"
+      },
+      "thresholdsStyle": {
+       "mode": "area"
+      }
+     },
+     "max": 30,
+     "min": 0,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "dark-purple",
+        "value": 0
+       },
+       {
+        "color": "dark-blue",
+        "value": 0
+       },
+       {
+        "color": "blue",
+        "value": 16
+       },
+       {
+        "color": "super-light-yellow",
+        "value": 18
+       },
+       {
+        "color": "dark-yellow",
+        "value": 21
+       },
+       {
+        "color": "green",
+        "value": 23
+       },
+       {
+        "color": "red",
+        "value": 26
+       }
+      ]
+     },
+     "unit": "celsius"
+    }
+   },
+   "gridPos": {
+    "h": 9,
+    "w": 24,
+    "x": 0,
+    "y": 20
+   },
+   "id": 8,
+   "options": {
+    "annotations": {
+     "clustering": -1,
+     "multiLane": false
+    },
+    "legend": {
+     "calcs": [],
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": false
+    },
+    "tooltip": {
+     "hideZeros": false,
+     "mode": "single",
+     "sort": "none"
+    }
+   },
+   "pluginVersion": "13.0.1",
+   "targets": [
+    {
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\r\n  |> range(start: 2026-06-01T00:00:00Z, stop: 2026-09-01T00:00:00Z)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"temperature\")\r\n  |> filter(fn: (r) => (r[\"device_id\"] == \"gisebo-01\" and r[\"host\"] == \"61781446e5e9\") or (r[\"device_id\"] == \"gisebo-05\" and r[\"_time\"] >= 2026-08-02T16:26:00Z))\n  |> filter(fn: (r) => r[\"_value\"] >= -2.0)\n  |> drop(columns: [\"device_id\", \"host\"])\r\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\r\n  |> yield(name: \"gisebo_01_temperature\")",
+     "refId": "A"
+    }
+   ],
+   "title": "Senaste s\u00e4songen",
+   "type": "timeseries"
+  },
+  {
+   "id": 13,
+   "type": "trend",
+   "title": "\u00c5ret \u2014 veckospann (min\u2013max ytterband, 20\u201380 % innerband, median)",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "h": 9,
+    "w": 24,
+    "x": 0,
+    "y": 29
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "queryType": "flux",
+     "query": "import \"date\"\n\ndata = from(bucket: \"home_assistant\")\n  |> range(start: 2026-01-01T00:00:00Z, stop: 2026-12-31T23:59:59Z)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"temperature\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-01\" or (r[\"device_id\"] == \"gisebo-05\" and r[\"_time\"] >= 2026-08-02T16:26:00Z))\n  |> filter(fn: (r) => r[\"_value\"] >= -2.0)\n  |> filter(fn: (r) => r[\"host\"] != \"3027a048eee2\")\n  |> drop(columns: [\"host\", \"device_id\"])\n\nminT = data |> aggregateWindow(every: 1w, offset: -3d, fn: min, createEmpty: false) |> set(key: \"_field\", value: \"Min\")\np20T = data |> aggregateWindow(every: 1w, offset: -3d, fn: (column, tables=<-) => tables |> quantile(q: 0.20, column: column), createEmpty: false) |> set(key: \"_field\", value: \"P20\")\nmedT = data |> aggregateWindow(every: 1w, offset: -3d, fn: median, createEmpty: false) |> set(key: \"_field\", value: \"Median\")\np80T = data |> aggregateWindow(every: 1w, offset: -3d, fn: (column, tables=<-) => tables |> quantile(q: 0.80, column: column), createEmpty: false) |> set(key: \"_field\", value: \"P80\")\nmaxT = data |> aggregateWindow(every: 1w, offset: -3d, fn: max, createEmpty: false) |> set(key: \"_field\", value: \"Max\")\n\nunion(tables: [minT, p20T, medT, p80T, maxT])\n  |> group()\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({ r with Vecka: float(v: date.week(t: date.sub(d: 4d, from: r._time))) }))\n  |> keep(columns: [\"Vecka\", \"Min\", \"P20\", \"Median\", \"P80\", \"Max\"])\n  |> sort(columns: [\"Vecka\"])"
+    }
+   ],
+   "options": {
+    "xField": "Vecka",
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "celsius",
+     "decimals": 1,
+     "custom": {
+      "drawStyle": "line",
+      "lineInterpolation": "smooth",
+      "lineWidth": 1,
+      "fillOpacity": 0,
+      "spanNulls": true,
+      "showPoints": "never",
+      "axisLabel": ""
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Max"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#6aa5e8"
+        }
+       },
+       {
+        "id": "custom.lineWidth",
+        "value": 1
+       },
+       {
+        "id": "custom.fillBelowTo",
+        "value": "P80"
+       },
+       {
+        "id": "custom.fillOpacity",
+        "value": 16
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "P80"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#33b5ae"
+        }
+       },
+       {
+        "id": "custom.lineWidth",
+        "value": 1
+       },
+       {
+        "id": "custom.fillBelowTo",
+        "value": "P20"
+       },
+       {
+        "id": "custom.fillOpacity",
+        "value": 42
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "P20"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#6aa5e8"
+        }
+       },
+       {
+        "id": "custom.lineWidth",
+        "value": 1
+       },
+       {
+        "id": "custom.fillBelowTo",
+        "value": "Min"
+       },
+       {
+        "id": "custom.fillOpacity",
+        "value": 16
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Min"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#6aa5e8"
+        }
+       },
+       {
+        "id": "custom.lineWidth",
+        "value": 1
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Median"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "#f2cc0c"
+        }
+       },
+       {
+        "id": "custom.lineWidth",
+        "value": 3
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Vecka"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "none"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       },
+       {
+        "id": "custom.axisLabel",
+        "value": "vecka (ISO)"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "preload": false,
+ "refresh": "15m",
+ "schemaVersion": 42,
+ "time": {
+  "from": "now-24h",
+  "to": "now"
+ },
+ "timepicker": {
+  "refresh_intervals": [
+   "5s",
+   "10s",
+   "30s",
+   "1m",
+   "5m",
+   "15m",
+   "30m",
+   "1h",
+   "2h",
+   "1d"
+  ]
+ },
+ "timezone": "browser",
+ "title": "Gisebo",
+ "uid": "adx6vtv",
+ "version": 109
+}
