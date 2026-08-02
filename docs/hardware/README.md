@@ -222,3 +222,69 @@ Feather USB pin + I2C, but add the Schottky before trusting the night reading
 - If the INA219 is not yet wired but you want to exercise the solar logic, the
   `SOLAR_NO_INA219` build option reads bus voltage from an ADC divider instead
   (see the main sketch). With the INA219 present, leave it off (the default).
+
+## The mode strap, explained
+
+Pin 11 is read **once, in `setup()`** with `INPUT_PULLUP` — changing the strap
+requires a power cycle (or a magnet pass on the reed) to take effect.
+
+| strap | mode | what changes |
+|---|---|---|
+| **floating** (nothing connected) | **PROD** | deep sleep between wakes, USB detached (no serial), data on FPort **11**, faults on FPort **1**, no verbose frames |
+| **tied to GND** | **DEV** | busy-wait "sleep" (USB and serial stay alive at 9600), data on FPort **21**, faults on FPort **2**, hourly verbose full-state frame on FPort **3** |
+
+Pin 11 was chosen over pin 13 deliberately: pin 13 carries the onboard LED, so
+`INPUT_PULLUP` on it would bleed current through the LED during deep sleep.
+Bench with the strap on; pull it (and power-cycle) as the last step before
+deployment. The FPort of the first data frame is the proof of mode: 21 means
+the strap is still bridged, 11 means PROD — and 10 would mean the INA219
+probe misdetected (wrong variant, do not deploy).
+
+## What it looks like on TTN
+
+Real frames from the bench (2026-08-02, DEV-strapped, decoded by
+`decoders/gisebo-05-v7.js`). In PROD the same frames appear on FPort 11/1 and
+the verbose frame does not exist.
+
+**Data frame — FPort 21 (PROD: 11), every 6 wakes.** Six temperatures newest
+first; the decoder spreads timestamps one interval apart:
+
+```json
+{ "battery_v": 4.119, "interval_index": 4, "interval_minutes": 30,
+  "mode": "SOLAR", "panel_v": 3.75, "panel_ma": 0, "sun_ewma": 0,
+  "bonus_active": false, "harvest_mah": 0, "uplink_counter": 1,
+  "entries": [ { "temperature": 22.2, "timestamp": "..." } ] }
+```
+
+**Fault/health frame — FPort 2 (PROD: 1), once per boot + on new faults +
+at most one re-alert per day.** The deployment health check — sensor status,
+identity, probe result and battery in one frame:
+
+```json
+{ "run_mode": "DEV", "reset_causes": ["power_on"], "cold_boot": true,
+  "boot_counter": 1, "ds18b20_count": 1, "ds18_status": "ok",
+  "ds18_rom": "ffcf35", "sensor_fail_streak": 0, "faults": [],
+  "fault_bits": 0, "healthy": true, "ina219_config": "0x399F",
+  "ina219_config_ok": true, "battery_v": 4.11 }
+```
+
+A disconnected sensor instead shows `"ds18_status": "not_found"`,
+`"faults": ["ds18b20_not_found"]` and a rising `sensor_fail_streak` — the
+exact signature that diagnosed the gisebo-01 chain failure over the air.
+
+**Verbose full-state frame — FPort 3, DEV only, hourly.** Everything at once,
+including the firmware provenance:
+
+```json
+{ "fw_commit": "95232b", "uptime_s": 3675, "cycle_count": 2,
+  "season": "Summer", "voltage_offset": 0, "interval_index": 4,
+  "sun_ewma": 0, "bonus_active": false, "clarity": null,
+  "surface_temp": 22.12, "panel_v": 3.75, "panel_ma": 0,
+  "battery_v": 4.245, "faults": [] }
+```
+
+`fw_commit` is the first 6 hex chars of the git commit the binary was built
+from (stamped by `scripts/build.sh`; `null` = unofficial build). A magnet pass
+on the reed produces: a fresh join, then this whole boot burst again with
+`reset_causes: ["power_on"]` — confirmation from anywhere that the field
+reset worked.
