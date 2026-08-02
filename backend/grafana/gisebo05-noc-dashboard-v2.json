@@ -1,0 +1,1568 @@
+{
+ "uid": "gisebo05-noc",
+ "title": "Gisebo 05 \u2014 Driftcentral",
+ "tags": [
+  "gisebo",
+  "noc"
+ ],
+ "timezone": "browser",
+ "refresh": "5m",
+ "time": {
+  "from": "now-48h",
+  "to": "now"
+ },
+ "panels": [
+  {
+   "id": 1,
+   "type": "stat",
+   "title": "Vattentemp",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"temperature\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> last()\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "graphMode": "area",
+    "colorMode": "value",
+    "justifyMode": "auto",
+    "textMode": "auto"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "celsius",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 4
+       },
+       {
+        "color": "orange",
+        "value": 26
+       }
+      ]
+     },
+     "decimals": 1
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 2,
+   "type": "stat",
+   "title": "Batteri",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 3,
+    "y": 0,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"battery_v\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> last()\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "graphMode": "area",
+    "colorMode": "value",
+    "justifyMode": "auto",
+    "textMode": "auto"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "volt",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 3.45
+       },
+       {
+        "color": "yellow",
+        "value": 3.65
+       },
+       {
+        "color": "green",
+        "value": 3.85
+       }
+      ]
+     },
+     "decimals": 3
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 3,
+   "type": "stat",
+   "title": "Panelstr\u00f6m",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 6,
+    "y": 0,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"panel_ma\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> last()\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "graphMode": "area",
+    "colorMode": "value",
+    "justifyMode": "auto",
+    "textMode": "auto"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "mA",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     },
+     "decimals": 1
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 4,
+   "type": "stat",
+   "title": "Sol-EWMA",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 9,
+    "y": 0,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"sun_ewma\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> last()\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "graphMode": "area",
+    "colorMode": "value",
+    "justifyMode": "auto",
+    "textMode": "auto"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 0.45
+       },
+       {
+        "color": "green",
+        "value": 0.55
+       }
+      ]
+     },
+     "decimals": 3
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 5,
+   "type": "stat",
+   "title": "Senast h\u00f6rd",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 0,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"battery_v\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> last()\n  |> map(fn: (r) => ({ r with _value: float(v: int(v: now()) - int(v: r._time)) / 60000000000.0 }))\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "graphMode": "area",
+    "colorMode": "value",
+    "justifyMode": "auto",
+    "textMode": "auto"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "m",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 220
+       },
+       {
+        "color": "red",
+        "value": 430
+       }
+      ]
+     },
+     "decimals": 0
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 6,
+   "type": "stat",
+   "title": "RSSI",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 15,
+    "y": 0,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"rssi\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> last()\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "graphMode": "area",
+    "colorMode": "value",
+    "justifyMode": "auto",
+    "textMode": "auto"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "dBm",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": -110
+       },
+       {
+        "color": "green",
+        "value": -100
+       }
+      ]
+     },
+     "decimals": 0
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 7,
+   "type": "stat",
+   "title": "Fel-bitar",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 18,
+    "y": 0,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"fault_bits\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> last()\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "graphMode": "area",
+    "colorMode": "value",
+    "justifyMode": "auto",
+    "textMode": "auto"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     },
+     "decimals": 0,
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "0": {
+         "text": "OK",
+         "color": "green"
+        }
+       }
+      }
+     ]
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 8,
+   "type": "stat",
+   "title": "Intervall",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 21,
+    "y": 0,
+    "w": 3,
+    "h": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"interval_minutes\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> last()\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "graphMode": "area",
+    "colorMode": "value",
+    "justifyMode": "auto",
+    "textMode": "auto"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "m",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "blue",
+        "value": 60
+       }
+      ]
+     },
+     "decimals": 0
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 9,
+   "type": "timeseries",
+   "title": "Vattentemperatur",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 4,
+    "w": 14,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"temperature\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": false
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "celsius",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 12,
+      "spanNulls": true,
+      "pointSize": 6,
+      "showPoints": "auto",
+      "lineInterpolation": "stepAfter"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "decimals": 1,
+     "displayName": "Vattentemp (\u00b0C)"
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 10,
+   "type": "timeseries",
+   "title": "Vattenstabilitet \u2014 3h stddev (ur vattnet = h\u00f6g)",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 14,
+    "y": 4,
+    "w": 10,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"temperature\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> aggregateWindow(every: 3h, fn: stddev, createEmpty: false)\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": false
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "celsius",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 12,
+      "spanNulls": true,
+      "pointSize": 6,
+      "showPoints": "auto",
+      "lineInterpolation": "stepAfter",
+      "thresholdsStyle": {
+       "mode": "line"
+      }
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 0.5
+       },
+       {
+        "color": "red",
+        "value": 1.5
+       }
+      ]
+     },
+     "decimals": 2,
+     "displayName": "3h-stddev (\u00b0C)"
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 11,
+   "type": "timeseries",
+   "title": "Batterisp\u00e4nning (band: 3.85 / 3.65 / 3.45)",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 12,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"battery_v\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": false
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "volt",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 12,
+      "spanNulls": true,
+      "pointSize": 6,
+      "showPoints": "auto",
+      "lineInterpolation": "stepAfter",
+      "thresholdsStyle": {
+       "mode": "line"
+      }
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 3.45
+       },
+       {
+        "color": "yellow",
+        "value": 3.65
+       },
+       {
+        "color": "green",
+        "value": 3.85
+       }
+      ]
+     },
+     "decimals": 3,
+     "displayName": "Batteri (V)"
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 12,
+   "type": "timeseries",
+   "title": "Panel \u2014 sp\u00e4nning & str\u00f6m",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 12,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"panel_v\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n",
+     "queryType": "flux"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"panel_ma\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 12,
+      "spanNulls": true,
+      "pointSize": 6,
+      "showPoints": "auto",
+      "lineInterpolation": "stepAfter"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "decimals": 1
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byFrameRefID",
+       "options": "A"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "Panelsp\u00e4nning"
+       },
+       {
+        "id": "unit",
+        "value": "volt"
+       },
+       {
+        "id": "decimals",
+        "value": 2
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byFrameRefID",
+       "options": "B"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "Panelstr\u00f6m"
+       },
+       {
+        "id": "unit",
+        "value": "mA"
+       },
+       {
+        "id": "decimals",
+        "value": 1
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": 13,
+   "type": "timeseries",
+   "title": "Sol-EWMA (latch 0.55 / sl\u00e4pp 0.45)",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 20,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"sun_ewma\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": false
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 12,
+      "spanNulls": true,
+      "pointSize": 6,
+      "showPoints": "auto",
+      "lineInterpolation": "stepAfter",
+      "thresholdsStyle": {
+       "mode": "line"
+      }
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 0.45
+       },
+       {
+        "color": "green",
+        "value": 0.55
+       }
+      ]
+     },
+     "decimals": 3,
+     "displayName": "sun_ewma"
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 14,
+   "type": "timeseries",
+   "title": "Sk\u00f6rd per timme (indikativ)",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 20,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"harvest_mah\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> difference(nonNegative: true)\n  |> aggregateWindow(every: 1h, fn: sum, createEmpty: false)\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": false
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "bars",
+      "lineWidth": 2,
+      "fillOpacity": 60,
+      "spanNulls": true,
+      "pointSize": 6,
+      "showPoints": "auto",
+      "lineInterpolation": "linear"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "decimals": 0,
+     "displayName": "Sk\u00f6rd (mAh/h)"
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 15,
+   "type": "state-timeline",
+   "title": "Rapportintervall",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 28,
+    "w": 8,
+    "h": 5
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"interval_minutes\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "showValue": "auto",
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": false
+    },
+    "rowHeight": 0.85,
+    "mergeValues": true
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "5": {
+         "text": "5 min \u2014 TURBO",
+         "color": "green"
+        },
+        "30": {
+         "text": "30 min",
+         "color": "blue"
+        },
+        "60": {
+         "text": "60 min",
+         "color": "purple"
+        },
+        "120": {
+         "text": "120 min",
+         "color": "orange"
+        }
+       }
+      }
+     ],
+     "custom": {
+      "fillOpacity": 70,
+      "spanNulls": true
+     },
+     "displayName": "intervall"
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 16,
+   "type": "state-timeline",
+   "title": "Solbonus",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 28,
+    "w": 8,
+    "h": 5
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"bonus_active\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> map(fn: (r) => ({ r with _value: if r._value then 1 else 0 }))\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "showValue": "auto",
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": false
+    },
+    "rowHeight": 0.85,
+    "mergeValues": true
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "1": {
+         "text": "LATCHAD",
+         "color": "green"
+        },
+        "0": {
+         "text": "ej aktiv",
+         "color": "blue"
+        }
+       }
+      }
+     ],
+     "custom": {
+      "fillOpacity": 70,
+      "spanNulls": true
+     },
+     "displayName": "bonus"
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 17,
+   "type": "state-timeline",
+   "title": "H\u00e4lsa",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 28,
+    "w": 8,
+    "h": 5
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"healthy\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> map(fn: (r) => ({ r with _value: if r._value then 1 else 0 }))\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "showValue": "auto",
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": false
+    },
+    "rowHeight": 0.85,
+    "mergeValues": true
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "1": {
+         "text": "FRISK",
+         "color": "green"
+        },
+        "0": {
+         "text": "FEL AKTIVT",
+         "color": "red"
+        }
+       }
+      }
+     ],
+     "custom": {
+      "fillOpacity": 70,
+      "spanNulls": true
+     },
+     "displayName": "h\u00e4lsa"
+    },
+    "overrides": []
+   }
+  },
+  {
+   "id": 18,
+   "type": "timeseries",
+   "title": "Radio \u2014 RSSI & SNR",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 33,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"rssi\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n",
+     "queryType": "flux"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"snr\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 12,
+      "spanNulls": true,
+      "pointSize": 6,
+      "showPoints": "auto",
+      "lineInterpolation": "stepAfter"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "decimals": 1
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byFrameRefID",
+       "options": "A"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "RSSI"
+       },
+       {
+        "id": "unit",
+        "value": "dBm"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byFrameRefID",
+       "options": "B"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "SNR"
+       },
+       {
+        "id": "unit",
+        "value": "dB"
+       },
+       {
+        "id": "decimals",
+        "value": 1
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": 19,
+   "type": "timeseries",
+   "title": "Ramr\u00e4knare (s\u00e5gtand = omstart) & reset-orsak",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 33,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"f_cnt\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n",
+     "queryType": "flux"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"reset_cause\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 12,
+      "spanNulls": true,
+      "pointSize": 6,
+      "showPoints": "auto",
+      "lineInterpolation": "stepAfter"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     },
+     "decimals": 0
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byFrameRefID",
+       "options": "A"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "f_cnt (ramr\u00e4knare)"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byFrameRefID",
+       "options": "B"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "reset-orsak"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": 20,
+   "type": "timeseries",
+   "title": "Sensor \u2014 felsvit & antal p\u00e5 bussen",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 41,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"sensor_fail_streak\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n",
+     "queryType": "flux"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"ds18b20_count\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 12,
+      "spanNulls": true,
+      "pointSize": 6,
+      "showPoints": "auto",
+      "lineInterpolation": "stepAfter"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     },
+     "decimals": 0
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byFrameRefID",
+       "options": "A"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "felsvit"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byFrameRefID",
+       "options": "B"
+      },
+      "properties": [
+       {
+        "id": "displayName",
+        "value": "antal p\u00e5 bussen"
+       },
+       {
+        "id": "decimals",
+        "value": 0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": 21,
+   "type": "timeseries",
+   "title": "Fel-bitar \u00f6ver tid",
+   "datasource": {
+    "type": "influxdb",
+    "uid": "afd5l8pwxv8xsc"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 41,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "influxdb",
+      "uid": "afd5l8pwxv8xsc"
+     },
+     "query": "from(bucket: \"home_assistant\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"http_listener_v2\")\n  |> filter(fn: (r) => r[\"_field\"] == \"fault_bits\")\n  |> filter(fn: (r) => r[\"device_id\"] == \"gisebo-05\")\n  |> filter(fn: (r) => r[\"_time\"] >= 2026-08-02T16:26:00Z)\n  |> group()\n  |> sort(columns: [\"_time\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n",
+     "queryType": "flux"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": false
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 12,
+      "spanNulls": true,
+      "pointSize": 6,
+      "showPoints": "auto",
+      "lineInterpolation": "stepAfter",
+      "thresholdsStyle": {
+       "mode": "line"
+      }
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     },
+     "decimals": 0,
+     "displayName": "fault_bits"
+    },
+    "overrides": []
+   }
+  }
+ ],
+ "schemaVersion": 39,
+ "version": 0,
+ "editable": true
+}
