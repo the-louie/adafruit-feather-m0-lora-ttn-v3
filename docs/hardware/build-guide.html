@@ -1,0 +1,863 @@
+<title>Gisebo-05 Solar Sensor — Build &amp; Wiring Guide</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --paper:   #f1f4f6;
+    --surface: #ffffff;
+    --surface-2: #f7f9fb;
+    --ink:     #18222b;
+    --ink-soft:#54626f;
+    --ink-faint:#8695a1;
+    --line:    #d7dee4;
+    --line-strong:#c2ccd3;
+    --accent:  #0d817d;   /* teal — the measurement instrument */
+    --accent-ink:#0a6360;
+    --accent-wash:#e3f1f0;
+    --copper:  #a9663a;   /* second accent — copper traces */
+    --ok:      #2c7d51;
+    --ok-wash: #e2f0e8;
+    --warn:    #9a6a12;
+    --warn-wash:#f6ecd6;
+    --danger:  #b23325;
+    --danger-wash:#f6e2df;
+    --net-pos:#c14a38;
+    --net-gnd:#465059;
+    --net-sda:#2e8b57;
+    --net-scl:#a8830f;
+    --net-strap:#7a4fa3;
+    --net-reed:#2f6db8;
+
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+
+    --measure: 68ch;
+    --wide: 920px;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:   #0f151a;
+      --surface: #161e25;
+      --surface-2: #1b242c;
+      --ink:     #e7edf2;
+      --ink-soft:#a4b2bd;
+      --ink-faint:#71818d;
+      --line:    #29333c;
+      --line-strong:#37444e;
+      --accent:  #33b5ae;
+      --accent-ink:#7fd6d0;
+      --accent-wash:#122a2a;
+      --copper:  #cf8f5f;
+      --ok:      #4fb27f;
+      --ok-wash: #12271d;
+      --warn:    #d29a44;
+      --warn-wash:#2a2211;
+      --danger:  #e0705d;
+      --danger-wash:#2c1613;
+      --net-pos:#e2806c;
+      --net-gnd:#9aa8b3;
+      --net-sda:#5fc98a;
+      --net-scl:#d9b44a;
+      --net-strap:#b18ae0;
+      --net-reed:#6aa5e8;
+    }
+  }
+  :root[data-theme="light"] {
+    --paper:#f1f4f6; --surface:#ffffff; --surface-2:#f7f9fb; --ink:#18222b; --ink-soft:#54626f;
+    --ink-faint:#8695a1; --line:#d7dee4; --line-strong:#c2ccd3; --accent:#0d817d; --accent-ink:#0a6360;
+    --accent-wash:#e3f1f0; --copper:#a9663a; --ok:#2c7d51; --ok-wash:#e2f0e8; --warn:#9a6a12;
+    --warn-wash:#f6ecd6; --danger:#b23325; --danger-wash:#f6e2df;
+    --net-pos:#c14a38; --net-gnd:#465059; --net-sda:#2e8b57; --net-scl:#a8830f;
+    --net-strap:#7a4fa3; --net-reed:#2f6db8;
+  }
+  :root[data-theme="dark"] {
+    --paper:#0f151a; --surface:#161e25; --surface-2:#1b242c; --ink:#e7edf2; --ink-soft:#a4b2bd;
+    --ink-faint:#71818d; --line:#29333c; --line-strong:#37444e; --accent:#33b5ae; --accent-ink:#7fd6d0;
+    --accent-wash:#122a2a; --copper:#cf8f5f; --ok:#4fb27f; --ok-wash:#12271d; --warn:#d29a44;
+    --warn-wash:#2a2211; --danger:#e0705d; --danger-wash:#2c1613; --net-pos:#e2806c; --net-gnd:#9aa8b3;
+    --net-sda:#5fc98a; --net-scl:#d9b44a; --net-strap:#b18ae0; --net-reed:#6aa5e8;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: var(--wide); margin: 0 auto; padding: 0 20px; }
+  .measure { max-width: var(--measure); }
+
+  /* ---- top bar ---- */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--surface) 88%, transparent);
+    position: sticky; top: 0; z-index: 20;
+    backdrop-filter: blur(8px);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-mono); font-size: 13px; letter-spacing: .04em; color: var(--ink-soft); }
+  .brand b { color: var(--ink); font-weight: 600; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
+  .toggle {
+    font: inherit; font-size: 13px; font-family: var(--font-mono);
+    color: var(--ink-soft); background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 7px;
+  }
+  .toggle:hover { border-color: var(--line-strong); color: var(--ink); }
+  .toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---- hero ---- */
+  header.hero { padding: 54px 0 30px; }
+  .eyebrow {
+    font-family: var(--font-mono); font-size: 12.5px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--copper); margin: 0 0 14px;
+  }
+  h1 {
+    font-size: clamp(30px, 5.5vw, 46px); line-height: 1.05; letter-spacing: -0.02em;
+    font-weight: 720; margin: 0 0 16px; text-wrap: balance;
+  }
+  .lede { font-size: 19px; color: var(--ink-soft); margin: 0; max-width: var(--measure); }
+  .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
+  .tag {
+    font-family: var(--font-mono); font-size: 12.5px; color: var(--ink-soft);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 7px;
+    padding: 7px 12px; display: inline-flex; gap: 8px; align-items: center;
+  }
+  .tag b { color: var(--ink); font-weight: 600; }
+  .tag .k { color: var(--ink-faint); }
+
+  /* ---- sections ---- */
+  section { padding: 22px 0; }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin: 0 0 6px; }
+  .sec-num {
+    font-family: var(--font-mono); font-size: 13px; color: var(--accent);
+    border: 1px solid var(--accent); border-radius: 6px; padding: 2px 8px; flex: none;
+  }
+  h2 { font-size: 25px; letter-spacing: -0.015em; font-weight: 680; margin: 0; text-wrap: balance; }
+  h3 { font-size: 17px; margin: 26px 0 8px; letter-spacing: .01em; }
+  .sub { color: var(--ink-soft); margin: 8px 0 0; max-width: var(--measure); }
+  p { max-width: var(--measure); }
+  hr.rule { border: 0; border-top: 1px solid var(--line); margin: 34px 0; }
+  code, .mono { font-family: var(--font-mono); font-size: 0.9em; }
+  p code, li code, td code {
+    background: var(--surface-2); border: 1px solid var(--line);
+    padding: 1px 5px; border-radius: 5px; color: var(--accent-ink); white-space: nowrap;
+  }
+
+  /* ---- callouts / warnings ---- */
+  .callouts { display: flex; flex-direction: column; gap: 12px; }
+  .note {
+    border: 1px solid var(--line); border-left-width: 4px; border-radius: 8px;
+    background: var(--surface); padding: 14px 16px;
+    display: grid; grid-template-columns: auto 1fr; gap: 4px 12px;
+  }
+  .note .sev {
+    grid-row: 1 / span 2; align-self: start; margin-top: 2px;
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; font-weight: 700;
+    padding: 3px 8px; border-radius: 5px; white-space: nowrap;
+  }
+  .note .ttl { font-weight: 640; }
+  .note .txt { color: var(--ink-soft); font-size: 15.5px; grid-column: 2; max-width: 62ch; }
+  .note.danger { border-left-color: var(--danger); }
+  .note.danger .sev { background: var(--danger-wash); color: var(--danger); }
+  .note.warn { border-left-color: var(--warn); }
+  .note.warn .sev { background: var(--warn-wash); color: var(--warn); }
+  .note.check { border-left-color: var(--accent); }
+  .note.check .sev { background: var(--accent-wash); color: var(--accent-ink); }
+  .note.ok { border-left-color: var(--ok); }
+  .note.ok .sev { background: var(--ok-wash); color: var(--ok); }
+
+  /* ---- parts inventory ---- */
+  .parts { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; margin-top: 18px; }
+  .part {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 14px 15px;
+    display: flex; flex-direction: column; gap: 5px;
+  }
+  .part .nm { font-family: var(--font-mono); font-size: 14px; font-weight: 600; color: var(--ink); }
+  .part .role { font-size: 14px; color: var(--ink-soft); }
+  .part .badge { align-self: flex-start; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .06em; padding: 2px 7px; border-radius: 4px; font-weight: 700; }
+  .part.use { border-top: 3px solid var(--ok); }
+  .part.use .badge { background: var(--ok-wash); color: var(--ok); }
+  .part.avoid { border-top: 3px solid var(--danger); opacity: .96; }
+  .part.avoid .badge { background: var(--danger-wash); color: var(--danger); }
+  .part.avoid .nm { color: var(--ink-soft); text-decoration: line-through; text-decoration-color: var(--line-strong); }
+
+  /* ---- signal chain diagram (HTML) ---- */
+  .chainwrap { overflow-x: auto; padding: 6px 2px 10px; margin: 16px 0 4px; }
+  .chain { display: flex; align-items: stretch; gap: 0; min-width: min-content; }
+  .node {
+    background: var(--surface); border: 1.5px solid var(--line-strong); border-radius: 9px;
+    padding: 10px 13px; min-width: 96px; flex: none;
+    display: flex; flex-direction: column; gap: 3px; justify-content: center;
+  }
+  .node.chip { border-color: var(--accent); }
+  .node.hub { border-color: var(--copper); border-width: 1.5px; }
+  .node .n-t { font-family: var(--font-mono); font-size: 13px; font-weight: 640; color: var(--ink); }
+  .node .n-s { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); }
+  .wire { flex: none; align-self: center; min-width: 58px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 0 2px; }
+  .wire .w-l { font-family: var(--font-mono); font-size: 10.5px; color: var(--accent-ink); white-space: nowrap; }
+  .wire .w-line { width: 100%; height: 0; border-top: 2px solid var(--line-strong); position: relative; }
+  .wire .w-line::after { content: "▸"; position: absolute; right: -3px; top: -9px; color: var(--line-strong); font-size: 13px; }
+  .wire.dash .w-line { border-top-style: dashed; }
+  .wire .w-sub { font-family: var(--font-mono); font-size: 10px; color: var(--ink-faint); }
+
+  /* ---- overview svg ---- */
+  .svgwrap { overflow-x: auto; margin: 20px 0 6px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+  svg.diagram { display: block; min-width: 720px; width: 100%; height: auto; }
+  .s-blk { fill: var(--surface-2); stroke: var(--line-strong); stroke-width: 1.5; }
+  .s-blk.accent { stroke: var(--accent); }
+  .s-blk.hub { fill: var(--surface); stroke: var(--copper); stroke-width: 2; }
+  .s-t { fill: var(--ink); font-family: var(--font-mono); font-size: 13px; font-weight: 600; }
+  .s-s { fill: var(--ink-faint); font-family: var(--font-mono); font-size: 11px; }
+  .s-wire { fill: none; stroke: var(--line-strong); stroke-width: 2; }
+  .s-wire.dash { stroke-dasharray: 5 4; stroke: var(--accent); }
+  .s-wl { fill: var(--accent-ink); font-family: var(--font-mono); font-size: 11px; }
+  .s-pin { fill: var(--ink-soft); font-family: var(--font-mono); font-size: 11px; }
+  .s-note { fill: var(--copper); font-family: var(--font-mono); font-size: 11px; }
+  .n-pos { fill: none; stroke: var(--net-pos); stroke-width: 2.2; }
+  .n-gnd { fill: none; stroke: var(--net-gnd); stroke-width: 2.2; }
+  .n-data{ fill: none; stroke: var(--accent);  stroke-width: 2.2; }
+  .n-sda { fill: none; stroke: var(--net-sda);  stroke-width: 2.2; }
+  .n-scl { fill: none; stroke: var(--net-scl);  stroke-width: 2.2; }
+  .n-strap{ fill: none; stroke: var(--net-strap); stroke-width: 2.2; }
+  .n-reed{ fill: none; stroke: var(--net-reed); stroke-width: 2.2; }
+  .jstrap{ fill: var(--net-strap); } .jreed{ fill: var(--net-reed); }
+  .diode { fill: var(--net-pos); stroke: none; }
+  .jpos { fill: var(--net-pos); } .jgnd { fill: var(--net-gnd); } .jdat { fill: var(--accent); }
+  .s-padlbl { fill: var(--ink); font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; }
+  .s-rail { fill: var(--ink-soft); font-family: var(--font-mono); font-size: 11px; font-weight: 700; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px 20px; margin: 16px 0 4px; font-family: var(--font-mono); font-size: 12px; color: var(--ink-soft); }
+  .legend .lg { display: inline-flex; align-items: center; gap: 8px; }
+  .legend .sw { width: 22px; height: 4px; border-radius: 2px; display: inline-block; }
+
+  /* ---- steps ---- */
+  ol.steps { counter-reset: step; list-style: none; padding: 0; margin: 14px 0 0; max-width: var(--measure); }
+  ol.steps > li {
+    position: relative; padding: 0 0 16px 44px; margin: 0;
+  }
+  ol.steps > li::before {
+    counter-increment: step; content: counter(step);
+    position: absolute; left: 0; top: -2px;
+    width: 28px; height: 28px; border-radius: 7px;
+    background: var(--accent-wash); color: var(--accent-ink);
+    border: 1px solid var(--accent); font-family: var(--font-mono); font-size: 14px; font-weight: 700;
+    display: grid; place-items: center;
+  }
+  ol.steps > li::after {
+    content: ""; position: absolute; left: 13.5px; top: 30px; bottom: 4px; width: 1px; background: var(--line);
+  }
+  ol.steps > li:last-child::after { display: none; }
+  ol.steps b { font-weight: 640; }
+
+  /* ---- table ---- */
+  .tablewrap { overflow-x: auto; margin: 16px 0; border: 1px solid var(--line); border-radius: var(--radius); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 15px; }
+  thead th {
+    text-align: left; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--ink-faint); padding: 11px 14px; border-bottom: 1px solid var(--line-strong); background: var(--surface-2);
+    position: sticky; top: 0;
+  }
+  tbody td { padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:hover td { background: var(--surface-2); }
+  td .pad { font-family: var(--font-mono); font-weight: 600; color: var(--ink); }
+  .grp td { background: var(--accent-wash); font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent-ink); font-weight: 700; padding: 7px 14px; }
+  .grp:hover td { background: var(--accent-wash); }
+
+  /* ---- footer ---- */
+  footer { border-top: 1px solid var(--line); margin-top: 40px; padding: 28px 0 60px; color: var(--ink-faint); font-size: 13.5px; }
+  footer .mono { font-family: var(--font-mono); font-size: 12.5px; }
+  footer a { color: var(--accent-ink); }
+
+  @media (max-width: 560px) {
+    body { font-size: 16px; }
+    header.hero { padding: 36px 0 20px; }
+    .note { grid-template-columns: 1fr; }
+    .note .sev { grid-row: auto; justify-self: start; }
+    .note .txt { grid-column: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="topbar">
+  <div class="brand"><span class="dot"></span><b>gisebo-05</b> · solar sensor build</div>
+  <button class="toggle" id="themeBtn" aria-label="Switch colour theme"><span id="themeIcon">◐</span><span id="themeLbl">Theme</span></button>
+</div>
+
+<div class="wrap">
+  <header class="hero">
+    <p class="eyebrow">Field IoT · LoRaWAN water-temperature node</p>
+    <h1>Solar sensor build &amp; wiring guide</h1>
+    <p class="lede">Every connection for the solar variant — a Feather M0 that measures water temperature, harvests from a small panel through a current sensor, and runs on a protected li-ion pack. Read the three warnings first; one of them can destroy the board.</p>
+    <div class="meta">
+      <span class="tag"><span class="k">variant</span><b>solar</b></span>
+      <span class="tag"><span class="k">pack</span><b>1S2P · 3.7 V</b></span>
+      <span class="tag"><span class="k">FPort</span><b>11 / 21</b></span>
+      <span class="tag"><span class="k">payload</span><b>15 bytes</b></span>
+      <span class="tag"><span class="k">fw</span><b>95232b</b></span>
+      <span class="tag"><span class="k">sensor</span><b>ffcf35</b></span>
+    </div>
+  </header>
+
+  <hr class="rule">
+
+  <!-- READ FIRST -->
+  <section>
+    <div class="sec-head"><span class="sec-num">00</span><h2>Read this first</h2></div>
+    <p class="sub">These three bite hardest. The first is one wrong wire away from a dead board.</p>
+    <div class="callouts" style="margin-top:18px">
+      <div class="note danger">
+        <span class="sev">DANGER</span>
+        <span class="ttl">Check JST polarity before you plug the pack in.</span>
+        <span class="txt">If you wired the pack yourself, verify <b>+</b> and <b>−</b> against the Feather's silkscreen. Reversed polarity on the battery connector can kill the board instantly. Never put panels in series either — two 5&nbsp;V panels make ~12&nbsp;V, over the charger's 7&nbsp;V limit.</span>
+      </div>
+      <div class="note warn">
+        <span class="sev">CAUTION</span>
+        <span class="ttl">The supercap is a momentary short until it charges.</span>
+        <span class="txt">A ~1&nbsp;F cap across a charged pack draws a large inrush the instant you connect it — enough to spark and stress a cell, or trip the protection board's over-current cutoff. Pre-charge it, or add a small series resistor during hookup. Details in section&nbsp;A.</span>
+      </div>
+      <div class="note warn">
+        <span class="sev">CAUTION</span>
+        <span class="ttl">USB masks the panel — you can't watch solar over serial.</span>
+        <span class="txt">Plugged in for programming, the <code>USB</code> pin sits at 5&nbsp;V regardless of sun, so the INA219 reads USB, not the panel. To see real solar, run on battery and read telemetry over the air (FPort 11/21), or strap DEV with USB unplugged.</span>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- PARTS -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>Parts inventory</h2></div>
+    <p class="sub">Everything that goes in the build.</p>
+
+        <div class="parts">
+      <div class="part use"><span class="badge">USE</span><span class="nm">Feather M0 + RFM95</span><span class="role">The MCU + LoRa radio. Onboard MCP73831 charges the pack.</span></div>
+      <div class="part use"><span class="badge">USE</span><span class="nm">DS18B20 (waterproof)</span><span class="role">Water temperature, on the OneWire bus at A2.</span></div>
+      <div class="part use"><span class="badge">USE</span><span class="nm">4.7 kΩ resistor</span><span class="role">OneWire pull-up, DATA↔3V. The bus fails without it.</span></div>
+      <div class="part use"><span class="badge">USE</span><span class="nm">INA219 (0x40)</span><span class="role">High-side current + bus-voltage sense in the charge path.</span></div>
+      <div class="part use"><span class="badge">USE</span><span class="nm">Schottky 1N5817</span><span class="role">Blocks reverse leakage into the panel at night.</span></div>
+      <div class="part use"><span class="badge">USE</span><span class="nm">Solar panel 5 V 0.15 W</span><span class="role">Face south (up to 10° west is fine), full 15° tilt from vertical. Sheds snow; catches low winter sun.</span></div>
+      <div class="part use"><span class="badge">USE</span><span class="nm">1S2P 18650 pack</span><span class="role">2× 3000 mAh in parallel = 3.7 V, ~6000 mAh.</span></div>
+      <div class="part use"><span class="badge">USE</span><span class="nm">1S DW01 board (2.54 V)</span><span class="role">The PCM — over-discharge cutoff. Your board is correct.</span></div>
+      <div class="part use"><span class="badge">USE</span><span class="nm">Supercap 5.5 V ~1 F</span><span class="role">Covers the 120 mA TX spike so a cold cell won't sag.</span></div>
+      <div class="part use"><span class="badge">USE</span><span class="nm">Jumper wire</span><span class="role">DIO1 → pin 6. LMIC needs it. Solder it on.</span></div>
+      <div class="part use"><span class="badge">USE</span><span class="nm">Reed switch (NO) + magnet</span><span class="role">EN ↔ GND. Field hard-reset through the sealed box wall — a 3 s magnet hold power-cycles everything.</span></div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- OVERVIEW -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>How it fits together</h2></div>
+    <p class="sub">Two power sources meet at the Feather: the panel <em>charges</em> through the <code>USB</code> pin (via the INA219), and the protected pack <em>runs and stores</em> through the <code>JST</code>. The sensor is on <code>A2</code>; the INA219 talks over I²C.</p>
+
+    <div class="svgwrap">
+      <svg class="diagram" viewBox="0 0 880 470" role="img" aria-label="System block diagram: panel through Schottky and INA219 into the Feather USB pin; 18650 pack and supercap through the PCM into the JST; DS18B20 into A2; INA219 over I2C.">
+        <!-- FEATHER hub -->
+        <rect class="s-blk hub" x="638" y="34" width="214" height="402" rx="12"></rect>
+        <text class="s-t" x="745" y="60" text-anchor="middle">FEATHER M0</text>
+        <text class="s-s" x="745" y="77" text-anchor="middle">+ RFM95 · MCP73831</text>
+        <!-- feather entry pins -->
+        <text class="s-pin" x="650" y="120">USB ◂</text>
+        <text class="s-pin" x="650" y="190">I²C ◂</text>
+        <text class="s-pin" x="650" y="262">JST ◂</text>
+        <text class="s-pin" x="650" y="330">A2 ◂</text>
+        <text class="s-note" x="650" y="392">DIO1 → 6  (jumper)</text>
+        <text class="s-note" x="650" y="410">strap 11 · reed EN↔GND</text>
+
+        <!-- PANEL -->
+        <rect class="s-blk accent" x="28" y="44" width="168" height="60" rx="10"></rect>
+        <text class="s-t" x="112" y="72" text-anchor="middle">SOLAR PANEL</text>
+        <text class="s-s" x="112" y="90" text-anchor="middle">5 V · 0.15 W</text>
+        <!-- schottky glyph -->
+        <text class="s-note" x="228" y="70" text-anchor="middle">▷|</text>
+        <text class="s-s" x="228" y="86" text-anchor="middle">Schottky</text>
+        <!-- INA219 -->
+        <rect class="s-blk accent" x="288" y="40" width="176" height="86" rx="10"></rect>
+        <text class="s-t" x="376" y="66" text-anchor="middle">INA219</text>
+        <text class="s-s" x="376" y="84" text-anchor="middle">0x40 · Vin+ ▸ Vin−</text>
+        <text class="s-s" x="376" y="102" text-anchor="middle">measures harvest + V</text>
+        <!-- wire panel -> ina -->
+        <path class="s-wire" d="M196 74 H260"></path>
+        <path class="s-wire" d="M256 74 H288"></path>
+        <!-- wire ina Vin- -> USB -->
+        <path class="s-wire" d="M464 66 H556 V116 H638"></path>
+        <text class="s-wl" x="470" y="58">Vin− → USB pin</text>
+        <!-- I2C ina -> feather -->
+        <path class="s-wire dash" d="M464 108 H520 V186 H638"></path>
+        <text class="s-wl" x="470" y="126">I²C: SDA·SCL·3V·GND</text>
+
+        <!-- PACK + supercap -->
+        <rect class="s-blk" x="28" y="188" width="168" height="72" rx="10"></rect>
+        <text class="s-t" x="112" y="216" text-anchor="middle">18650 · 1S2P</text>
+        <text class="s-s" x="112" y="234" text-anchor="middle">+ SUPERCAP ∥ pack</text>
+        <text class="s-s" x="112" y="250" text-anchor="middle">3.7 V · ~6000 mAh</text>
+        <!-- PCM -->
+        <rect class="s-blk" x="288" y="196" width="150" height="56" rx="10"></rect>
+        <text class="s-t" x="363" y="220" text-anchor="middle">PCM · 1S</text>
+        <text class="s-s" x="363" y="238" text-anchor="middle">cutoff 2.54 V</text>
+        <!-- wire pack -> pcm -->
+        <path class="s-wire" d="M196 224 H288"></path>
+        <text class="s-wl" x="210" y="216">B+ B−</text>
+        <!-- wire pcm -> JST -->
+        <path class="s-wire" d="M438 224 H556 V258 H638"></path>
+        <text class="s-wl" x="450" y="216">P+ / P− → JST</text>
+
+        <!-- DS18B20 -->
+        <rect class="s-blk" x="28" y="318" width="168" height="60" rx="10"></rect>
+        <text class="s-t" x="112" y="345" text-anchor="middle">DS18B20</text>
+        <text class="s-s" x="112" y="363" text-anchor="middle">water · +4.7 kΩ</text>
+        <!-- wire ds -> A2 -->
+        <path class="s-wire" d="M196 348 H556 V326 H638"></path>
+        <text class="s-wl" x="230" y="340">DATA → A2</text>
+      </svg>
+    </div>
+    <p class="sub" style="font-size:14.5px">Dashed = I²C (signal). Solid = power/sense. The full pad-by-pad list is in section&nbsp;08.</p>
+  </section>
+
+  <hr class="rule">
+
+  <!-- BUILD A: BATTERY -->
+  <section>
+    <div class="sec-head"><span class="sec-num">A</span><h2>Battery, protection &amp; supercap</h2></div>
+    <p class="sub">Do this first and carefully — it's the part with live energy. The pack is two cells in <b>parallel</b> (one 3.7&nbsp;V group), the PCM protects it, and everything downstream hangs off the PCM's <code>P+ / P−</code>.</p>
+
+    <div class="chainwrap">
+      <div class="chain">
+        <div class="node"><span class="n-t">18650 ×2</span><span class="n-s">∥ = 3.7 V</span></div>
+        <div class="wire"><span class="w-l">both + / both −</span><span class="w-line"></span></div>
+        <div class="node"><span class="n-t">PCM 1S</span><span class="n-s">B+ B− · P+ P−</span></div>
+        <div class="wire"><span class="w-l">P+ / P−</span><span class="w-line"></span></div>
+        <div class="node hub"><span class="n-t">Feather JST</span><span class="n-s">+ / −(GND)</span></div>
+      </div>
+    </div>
+
+    <ol class="steps">
+      <li><b>Parallel the cells.</b> Tie both cell <code>+</code> terminals together, both <code>−</code> together. Charge both to the same voltage <em>before</em> joining them so they don't dump current into each other.</li>
+      <li><b>Wire the pack to the PCM.</b> Pack&nbsp;<code>+</code> → <code>B+</code>, pack&nbsp;<code>−</code> → <code>B−</code>. Follow the board's silkscreen exactly — reversed B±/P± can damage the protection chip.</li>
+      <li><b>Attach the supercap across the pack</b> (<code>+</code> to pack&nbsp;+, <code>−</code> to pack&nbsp;−). To tame the inrush, touch it on through a ~100&nbsp;Ω resistor for a second or two first, then connect solidly. It buffers the TX spike so a cold, high-resistance cell won't sag the rail below the 3.4&nbsp;V brownout.</li>
+      <li><b>Run the load off <code>P+ / P−</code>.</b> Make a JST lead: <code>P+</code> → JST&nbsp;<code>+</code>, <code>P−</code> → JST&nbsp;<code>−</code>. <b>Do not plug it into the Feather yet</b> — verify polarity with a meter first.</li>
+    </ol>
+
+    <div class="callouts" style="margin-top:6px">
+      <div class="note check"><span class="sev">CHECK</span><span class="ttl">Cutoff sits in the right window.</span><span class="txt">2.54&nbsp;V is below the Feather's 3.4&nbsp;V brownout (so firmware always reacts first) and above the cell's damage point — exactly right. A charger is <em>not</em> a substitute: it stops over-charge, never over-discharge.</span></div>
+      <div class="note warn"><span class="sev">COLD</span><span class="ttl">Li-ion charges poorly below 0 °C.</span><span class="txt">At this site the pack can freeze in winter. Charge current is tiny (~C/200), so it's gentle, just slow — a deep-winter refill may wait for the box to warm on a sunny day. Cells are treated as consumable on a 5–10&nbsp;year cycle.</span></div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- BUILD B: CHARGE PATH -->
+  <section>
+    <div class="sec-head"><span class="sec-num">B</span><h2>Solar charge path</h2></div>
+    <p class="sub">The subtle part. The INA219 goes <b>in-line</b> in the panel's positive lead, so it measures the harvest current and the bus voltage the firmware keys on. The panel feeds the Feather's <code>USB</code> pin, which drives the onboard charger.</p>
+
+    <div class="chainwrap">
+      <div class="chain">
+        <div class="node chip"><span class="n-t">PANEL +</span><span class="n-s">5 V</span></div>
+        <div class="wire"><span class="w-l">anode ▸ band</span><span class="w-line"></span><span class="w-sub">Schottky</span></div>
+        <div class="node chip"><span class="n-t">INA219</span><span class="n-s">Vin+ ▸ Vin−</span></div>
+        <div class="wire"><span class="w-l">Vin−</span><span class="w-line"></span></div>
+        <div class="node hub"><span class="n-t">Feather USB</span><span class="n-s">charger in</span></div>
+      </div>
+    </div>
+
+    <ol class="steps">
+      <li><b>Panel + into the Schottky.</b> Panel&nbsp;<code>+</code> → diode <b>anode</b>; the <b>banded</b> end (cathode) points downstream, toward the INA219. The band blocks current flowing back into the panel at night.</li>
+      <li><b>Through the INA219 shunt.</b> Schottky cathode → <code>Vin+</code>; <code>Vin−</code> → the Feather's <code>USB</code> pin. Direction matters: current flows <code>Vin+ ▸ Vin−</code> when charging.</li>
+      <li><b>Panel − to common ground.</b> Panel&nbsp;<code>−</code> → Feather <code>GND</code>. All grounds are common.</li>
+    </ol>
+
+    <div class="callouts">
+      <div class="note warn"><span class="sev">DIRECTION</span><span class="ttl">Vin+ is the panel side, Vin− the Feather side.</span><span class="txt">Backwards, <code>getCurrent_mA()</code> reads negative while charging — and the firmware floors negatives to zero, so your harvest would silently read 0 all day with no error to tell you why.</span></div>
+      <div class="note check"><span class="sev">CHECK</span><span class="ttl">One panel only; never in series.</span><span class="txt">A "5&nbsp;V" panel is ~6&nbsp;V open-circuit — fine for the charger's 7&nbsp;V limit. Two in series (~12&nbsp;V) would exceed it. If you ever add a second panel, wire it in <b>parallel</b> with its own Schottky.</span></div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- BUILD C: I2C -->
+  <section>
+    <div class="sec-head"><span class="sec-num">C</span><h2>INA219 logic power &amp; I²C</h2></div>
+    <p class="sub">Separate from the sense terminals above, the INA219 needs logic power and two I²C lines. The firmware probes for it at address <code>0x40</code> — finding it is what selects the solar variant.</p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>INA219 pad</th><th>Feather</th><th>Note</th></tr></thead>
+        <tbody>
+          <tr><td><span class="pad">VCC</span></td><td><span class="pad">3V</span></td><td>logic supply (not the sense side)</td></tr>
+          <tr><td><span class="pad">GND</span></td><td><span class="pad">GND</span></td><td>common</td></tr>
+          <tr><td><span class="pad">SDA</span></td><td><span class="pad">SDA (20)</span></td><td>I²C data</td></tr>
+          <tr><td><span class="pad">SCL</span></td><td><span class="pad">SCL (21)</span></td><td>I²C clock</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callouts">
+      <div class="note ok"><span class="sev">WHY</span><span class="ttl">The probe is what picks the variant.</span><span class="txt">INA219 present → solar policy (FPort 11/21, 15-byte payload). Absent → the primary policy misreads the li-ion as a flat 6&nbsp;V pack and parks at a 7-day interval. So a loose I²C wire looks like a working board that quietly stops reporting — the backend alarm watches for exactly that, and the boot fault frame (FPort 1/2) reports the probe's config register so a misdetect is visible from the first uplink. A soft-reset before the probe read guards the warm-reset case.</span></div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- BUILD D: SENSOR -->
+  <section>
+    <div class="sec-head"><span class="sec-num">D</span><h2>Water sensor</h2></div>
+    <p class="sub">A single DS18B20 on the OneWire bus, with its mandatory pull-up. This is the reading that drives the whole seasonal interval.</p>
+
+    <h3>Sensor pinout — DS18B20 (TO-92)</h3>
+    <p class="sub">The bare sensor is a TO-92 package: one <b>flat</b> face and one <b>curved</b> back. Hold it with the <b>flat face toward you and the legs pointing down</b> — then the pins are <b>GND, DQ, VDD</b>, left to right. Swapping VDD and GND makes the part get hot and read nothing.</p>
+
+    <div class="svgwrap">
+      <svg class="diagram" viewBox="0 0 660 300" role="img" aria-label="DS18B20 TO-92 pinout. Front view, flat face toward you and legs pointing down: the left leg is GND (pin 1), the middle leg is DQ, the data line (pin 2), the right leg is VDD (pin 3). A top-down cross-section shows the package is flat on the front face, where the three leads line up, and curved on the back.">
+        <!-- FRONT VIEW -->
+        <text class="s-note" x="175" y="30" text-anchor="middle">FRONT — flat face toward you, legs down</text>
+        <!-- body -->
+        <path class="s-blk" d="M120 150 L120 95 A55 55 0 0 1 230 95 L230 150 Z"></path>
+        <text class="s-t" x="175" y="112" text-anchor="middle">DS18B20</text>
+        <text class="s-s" x="175" y="132" text-anchor="middle">flat side</text>
+        <!-- legs -->
+        <rect class="jgnd" x="127" y="150" width="6" height="60"></rect>
+        <rect class="jdat" x="172" y="150" width="6" height="60"></rect>
+        <rect class="jpos" x="217" y="150" width="6" height="60"></rect>
+        <!-- pin numbers -->
+        <text class="s-s" x="130" y="230" text-anchor="middle">1</text>
+        <text class="s-s" x="175" y="230" text-anchor="middle">2</text>
+        <text class="s-s" x="220" y="230" text-anchor="middle">3</text>
+        <!-- pin names, colour-matched to the schematic nets -->
+        <text class="s-padlbl" x="130" y="252" text-anchor="middle" style="fill:var(--net-gnd)">GND</text>
+        <text class="s-padlbl" x="175" y="252" text-anchor="middle" style="fill:var(--accent)">DQ</text>
+        <text class="s-padlbl" x="220" y="252" text-anchor="middle" style="fill:var(--net-pos)">VDD</text>
+        <!-- probe wire colours -->
+        <text class="s-s" x="130" y="271" text-anchor="middle" style="fill:var(--ink-faint)">black</text>
+        <text class="s-s" x="175" y="271" text-anchor="middle" style="fill:var(--ink-faint)">yellow · data</text>
+        <text class="s-s" x="220" y="271" text-anchor="middle" style="fill:var(--ink-faint)">red</text>
+
+        <!-- divider -->
+        <path class="s-wire" d="M340 56 V256" style="stroke-dasharray:4 5"></path>
+
+        <!-- CROSS-SECTION (top-down): flat edge DOWN = toward the human, matching the front view -->
+        <text class="s-note" x="500" y="30" text-anchor="middle">CROSS-SECTION — from above</text>
+        <text class="s-s" x="500" y="120" text-anchor="middle" style="fill:var(--ink-faint)">curved back — away from you</text>
+        <path class="s-blk" d="M450 198 L550 198 A50 50 0 0 0 450 198 Z"></path>
+        <!-- three leads line up along the flat face -->
+        <circle cx="466" cy="198" r="4" style="fill:var(--ink-soft)"></circle>
+        <circle cx="500" cy="198" r="4" style="fill:var(--ink-soft)"></circle>
+        <circle cx="534" cy="198" r="4" style="fill:var(--ink-soft)"></circle>
+        <path d="M450 198 H550" style="stroke:var(--accent);stroke-width:3;fill:none"></path>
+        <text class="s-wl" x="500" y="220" text-anchor="middle">flat face — toward you (leads here)</text>
+      </svg>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Pin</th><th>Name</th><th>Probe wire</th><th>Feather</th></tr></thead>
+        <tbody>
+          <tr><td>1 · left</td><td><span class="pad">GND</span></td><td>black</td><td><span class="pad">GND</span></td></tr>
+          <tr><td>2 · middle</td><td><span class="pad">DQ</span> — data</td><td>yellow</td><td><span class="pad">A2</span> + 4.7 kΩ to <span class="pad">3V</span></td></tr>
+          <tr><td>3 · right</td><td><span class="pad">VDD</span></td><td>red</td><td><span class="pad">3V</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callouts">
+      <div class="note warn"><span class="sev">CHECK</span><span class="ttl">Confirm your probe's wire colours before trusting them.</span><span class="txt">Most waterproof DS18B20 probes use <b>red = VDD</b>, <b>yellow = DQ</b>, <b>black = GND</b> — but some bring the data line out as <b>white</b> or <b>blue</b>, and cheap batches occasionally swap red and black. If in any doubt, continuity-buzz each wire to the TO-92 leg using the pin order above. Reversed VDD/GND overheats the sensor and reads nothing.</span></div>
+      <div class="note ok"><span class="sev">IDENTITY</span><span class="ttl">The sensor announces its serial over the air.</span><span class="txt">The boot fault frame reports the low 3 bytes of the DS18B20's ROM (<code>ds18_rom</code>). The production sensor is <code>ffcf35</code> — record the new value whenever the sensor is replaced; a changed ROM on the wire means a swapped (or wrong) sensor.</span></div>
+    </div>
+
+    <div class="chainwrap">
+      <div class="chain">
+        <div class="node"><span class="n-t">DS18B20</span><span class="n-s">red·black·yellow</span></div>
+        <div class="wire"><span class="w-l">DATA (+4.7 kΩ→3V)</span><span class="w-line"></span></div>
+        <div class="node hub"><span class="n-t">A2 · 3V · GND</span><span class="n-s">OneWire</span></div>
+      </div>
+    </div>
+
+    <ol class="steps">
+      <li><b>Data to A2, with the pull-up.</b> DATA (yellow) → <code>A2</code>, and a <code>4.7 kΩ</code> resistor between DATA and <code>3V</code>. Without it the open-drain bus never reads.</li>
+      <li><b>Power the sensor.</b> VDD (red) → <code>3V</code>, GND (black) → <code>GND</code>.</li>
+      <li><b>One sensor only on this bus.</b> The firmware halts reporting to nulls if it sees more than one device on A2 — it can't tell which is the surface reading.</li>
+    </ol>
+  </section>
+
+  <hr class="rule">
+
+  <!-- BUILD E: RADIO + MODE -->
+  <section>
+    <div class="sec-head"><span class="sec-num">E</span><h2>Radio jumper, mode strap &amp; field reset</h2></div>
+    <p class="sub">Three small but load-bearing connections: the LoRa stack needs DIO1 wired to a GPIO, one pin selects production vs development behaviour, and a reed switch gives the sealed box a magnet-operated hard reset.</p>
+
+    <ol class="steps">
+      <li><b>Jumper DIO1 → pin 6.</b> Solder a short wire from the RFM95's <code>DIO1</code> pad to Feather pin <code>6</code>. MCCI LMIC requires it; the radio won't work without it.</li>
+      <li><b>Set the mode strap on pin 11.</b> <b>Floating</b> = PROD (deep sleep, USB detached, FPort 11). <b>Tied to GND</b> = DEV (no deep sleep, serial alive, FPort 21). Bench with DEV; deploy with PROD.</li>
+      <li><b>Reed switch between <code>EN</code> and <code>GND</code></b> — normally-open (verify: OL with no magnet, continuity with). Mount it against the enclosure wall, test the magnet <em>through the wall</em> before sealing, and mark the spot outside. A magnet held for <b>3 seconds</b> shuts the 3.3 V regulator down and power-cycles the whole rail — MCU, radio, sensor and INA219 — with no bootloader double-tap risk; release and it cold-boots, rejoins, and sends a fresh boot fault frame as confirmation.</li>
+    </ol>
+    <div class="callouts">
+      <div class="note ok"><span class="sev">NOTE</span><span class="ttl">PROD detaches USB — no serial in the field.</span><span class="txt">That's deliberate for power. It also means the <code>idle(750)</code> defect only ever showed in PROD, never on a DEV bench — verify temperature behaviour on a PROD-strapped unit, not a DEV one.</span></div>
+      <div class="note check"><span class="sev">WHY EN</span><span class="ttl">EN beats RST for the field reset.</span><span class="txt">Grounding RST restarts only the MCU: I²C peripherals stay powered (the INA219's own reset threshold is 2 V), and a bouncing reed can double-tap the bootloader and strand the sketch. Grounding <code>EN</code> instead drops the whole 3.3 V domain — a true power cycle, every reset self-recoverable with another magnet pass.</span></div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- CONNECTION TABLE -->
+  <section>
+    <div class="sec-head"><span class="sec-num">08</span><h2>Full connection table</h2></div>
+    <p class="sub">The unambiguous reference. If a diagram and this table ever disagree, trust the table.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>From</th><th>To</th><th>Note</th></tr></thead>
+        <tbody>
+          <tr class="grp"><td colspan="3">Solar charge path</td></tr>
+          <tr><td><span class="pad">Panel +</span></td><td>Schottky anode</td><td>—</td></tr>
+          <tr><td>Schottky cathode (band)</td><td><span class="pad">INA219 Vin+</span></td><td>reverse-blocking</td></tr>
+          <tr><td><span class="pad">INA219 Vin−</span></td><td><span class="pad">Feather USB</span></td><td>charger input; also the bus-voltage sense node</td></tr>
+          <tr><td><span class="pad">Panel −</span></td><td><span class="pad">GND</span></td><td>common</td></tr>
+          <tr class="grp"><td colspan="3">INA219 logic / I²C</td></tr>
+          <tr><td><span class="pad">INA219 VCC</span></td><td><span class="pad">3V</span></td><td>—</td></tr>
+          <tr><td><span class="pad">INA219 GND</span></td><td><span class="pad">GND</span></td><td>—</td></tr>
+          <tr><td><span class="pad">INA219 SDA</span></td><td><span class="pad">SDA (20)</span></td><td>addr 0x40</td></tr>
+          <tr><td><span class="pad">INA219 SCL</span></td><td><span class="pad">SCL (21)</span></td><td>—</td></tr>
+          <tr class="grp"><td colspan="3">Battery / storage</td></tr>
+          <tr><td>Both cells + / −</td><td><span class="pad">PCM B+ / B−</span></td><td>cells in parallel first</td></tr>
+          <tr><td>Supercap + / −</td><td>across the pack (∥)</td><td>soft-connect for inrush</td></tr>
+          <tr><td><span class="pad">PCM P+ / P−</span></td><td><span class="pad">Feather JST + / −</span></td><td>verify polarity before plugging in</td></tr>
+          <tr class="grp"><td colspan="3">Sensor / radio / mode</td></tr>
+          <tr><td><span class="pad">DS18B20 DATA</span></td><td><span class="pad">A2</span></td><td>+ 4.7 kΩ to 3V</td></tr>
+          <tr><td><span class="pad">DS18B20 VDD / GND</span></td><td><span class="pad">3V / GND</span></td><td>—</td></tr>
+          <tr><td><span class="pad">RFM95 DIO1</span></td><td><span class="pad">pin 6</span></td><td>solder jumper; LMIC needs it</td></tr>
+          <tr><td><span class="pad">pin 11</span></td><td>float = PROD, GND = DEV</td><td>mode strap</td></tr>
+          <tr><td><span class="pad">Reed switch (NO)</span></td><td><span class="pad">EN</span> ↔ <span class="pad">GND</span></td><td>magnet = field hard reset; verify OL without magnet</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- STEP BY STEP -->
+  <section>
+    <div class="sec-head"><span class="sec-num">09</span><h2>Step-by-step connection guide</h2></div>
+    <p class="sub">Every lead, in the order to run them. Do the low-energy wiring while the board is unpowered; build and verify the battery pack last, and don't plug it in until first power-up.</p>
+    <ol class="steps">
+      <li><b>Board prep (unpowered).</b> Solder a short jumper from the RFM95 <code>DIO1</code> pad to Feather pin <code>6</code> — the radio stack needs it, and it's easiest before anything else is attached.</li>
+      <li><b>Board prep.</b> Reed switch (normally-open — meter it: OL without magnet): one lead → <code>EN</code>, the other → <code>GND</code>. Support the glass body when bending the leads; fix it against the enclosure wall and mark the magnet spot outside.</li>
+      <li><b>Sensor.</b> DS18B20 <b>DATA</b> (yellow) → Feather <code>A2</code>.</li>
+      <li><b>Sensor.</b> A <code>4.7 kΩ</code> resistor from that same DATA line → Feather <code>3V</code> — the pull-up. The bus reads nothing without it.</li>
+      <li><b>Sensor.</b> DS18B20 <b>VDD</b> (red) → <code>3V</code>.</li>
+      <li><b>Sensor.</b> DS18B20 <b>GND</b> (black) → <code>GND</code>.</li>
+      <li><b>INA219 logic.</b> <code>VCC</code> → <code>3V</code>.</li>
+      <li><b>INA219 logic.</b> <code>GND</code> → <code>GND</code>.</li>
+      <li><b>INA219 logic.</b> <code>SDA</code> → Feather <code>SDA</code> (pin 20).</li>
+      <li><b>INA219 logic.</b> <code>SCL</code> → Feather <code>SCL</code> (pin 21).</li>
+      <li><b>Charge path.</b> Panel <b>+</b> (red) → Schottky <b>anode</b> (the plain, unbanded end).</li>
+      <li><b>Charge path.</b> Schottky <b>cathode</b> (the banded end) → INA219 <code>Vin+</code>.</li>
+      <li><b>Charge path.</b> INA219 <code>Vin−</code> → Feather <code>USB</code> pin. <em>Direction matters — Vin+ is the panel side.</em></li>
+      <li><b>Charge path.</b> Panel <b>−</b> (black) → <code>GND</code>.</li>
+      <li><b>Pack, off the board.</b> Join both cells' <b>+</b> together and both <b>−</b> together — charge them to the same voltage first so they don't dump into each other.</li>
+      <li><b>Pack.</b> Pack <b>+</b> → PCM <code>B+</code>; pack <b>−</b> → PCM <code>B−</code>. Follow the board silkscreen exactly.</li>
+      <li><b>Pack.</b> Supercap <b>+</b> → pack <b>+</b>, <b>−</b> → pack <b>−</b> — touch it on through a ~100&nbsp;Ω resistor for a second first, to tame the inrush.</li>
+      <li><b>Pack.</b> Make the JST lead: PCM <code>P+</code> → JST <b>+</b> (red), PCM <code>P−</code> → JST <b>−</b> (black). <b>Leave it unplugged.</b></li>
+      <li><b>Mode.</b> Strap pin <code>11</code> — floating for PROD, or tie to <code>GND</code> for a DEV bench.</li>
+      <li><b>Verify.</b> Meter the JST lead: correct polarity, ~3.7&nbsp;V. Only then continue to first power-up.</li>
+      <li><b>Verify the reed</b> after first power-up: magnet on → everything goes dark; hold 3&nbsp;s; release → normal boot and a rejoin. Test through the closed enclosure wall before final sealing.</li>
+    </ol>
+  </section>
+
+  <hr class="rule">
+
+  <!-- SCHEMATIC -->
+  <section>
+    <div class="sec-head"><span class="sec-num">10</span><h2>Full schematic — every lead</h2></div>
+    <p class="sub">One drawing with all conductors. Power taps meet the <code>3V</code> rail, all returns meet the <code>GND</code> rail; a filled junction dot marks a real connection — wires that only cross don't touch.</p>
+    <div class="legend">
+      <span class="lg"><span class="sw" style="background:var(--net-pos)"></span>positive / power&nbsp;(+)</span>
+      <span class="lg"><span class="sw" style="background:var(--net-gnd)"></span>ground / negative&nbsp;(−)</span>
+      <span class="lg"><span class="sw" style="background:var(--accent)"></span>OneWire data</span>
+      <span class="lg"><span class="sw" style="background:var(--net-sda)"></span>SDA</span>
+      <span class="lg"><span class="sw" style="background:var(--net-scl)"></span>SCL</span>
+      <span class="lg"><span class="sw" style="background:var(--net-strap)"></span>strap</span>
+      <span class="lg"><span class="sw" style="background:var(--net-reed)"></span>reed</span>
+      <span class="lg">▷| &nbsp;band = cathode</span>
+    </div>
+    <div class="svgwrap">
+      <svg class="diagram" viewBox="0 0 900 640" role="img" aria-label="Full wiring schematic. Solar panel positive goes through a Schottky diode, band toward the load, into INA219 Vin plus, across the shunt to Vin minus, then to the Feather USB pin. INA219 VCC, DS18B20 VDD and a 4.7 kilo-ohm resistor tie to the 3V rail. INA219 SDA and SCL run to the Feather I2C pins; DS18B20 DATA runs to A2. Two 18650 cells in parallel with a supercapacitor across them feed the PCM B plus and B minus; PCM P plus and P minus go to the Feather JST plus and minus. All negatives return to the common GND rail. DIO1 is jumpered to pin 6, pin 11 is the mode strap shown tied to ground for the DEV bench, and a normally-open reed switch connects EN to ground as the magnet-operated field reset.">
+        <!-- rails -->
+        <path class="n-pos" d="M120 175 H696"></path>
+        <text class="s-rail" x="112" y="179" text-anchor="end">3V</text>
+        <path class="n-gnd" d="M120 595 H696"></path>
+        <text class="s-rail" x="112" y="599" text-anchor="end">GND</text>
+        <path class="n-gnd" d="M96 595 V603 M86 603 H106 M90 607 H102 M94 611 H98"></path>
+
+        <!-- Feather -->
+        <rect class="s-blk hub" x="696" y="44" width="180" height="566" rx="12"></rect>
+        <text class="s-t" x="786" y="72" text-anchor="middle">FEATHER M0</text>
+        <text class="s-s" x="786" y="89" text-anchor="middle">+ RFM95 · MCP73831</text>
+        <text class="s-padlbl" x="708" y="124">USB</text>
+        <text class="s-padlbl" x="708" y="179">3V</text>
+        <text class="s-padlbl" x="708" y="254">SDA · 20</text>
+        <text class="s-padlbl" x="708" y="286">SCL · 21</text>
+        <text class="s-padlbl" x="708" y="354">A2</text>
+        <text class="s-note" x="708" y="414">6 ← DIO1 jumper</text>
+        <text class="s-note" x="708" y="449">11 ← strap</text>
+        <text class="s-padlbl" x="708" y="384">EN</text>
+        <text class="s-padlbl" x="708" y="509">JST +</text>
+        <text class="s-padlbl" x="708" y="554">JST −</text>
+        <text class="s-padlbl" x="708" y="599">GND</text>
+
+        <!-- panel + schottky -->
+        <rect class="s-blk" x="70" y="52" width="104" height="70" rx="8"></rect>
+        <text class="s-t" x="122" y="82" text-anchor="middle">PANEL</text>
+        <text class="s-s" x="122" y="99" text-anchor="middle">5 V</text>
+        <text class="s-padlbl" x="178" y="66">+</text>
+        <text class="s-padlbl" x="178" y="122">−</text>
+        <path class="n-pos" d="M174 70 H206"></path>
+        <path class="diode" d="M206 62 L206 78 L222 70 Z"></path>
+        <path class="n-pos" d="M222 60 V80"></path>
+        <path class="n-pos" d="M222 70 H300 V90 H352"></path>
+        <text class="s-padlbl" x="330" y="84">Vin+</text>
+
+        <!-- INA219 -->
+        <rect class="s-blk" x="352" y="58" width="150" height="98" rx="8"></rect>
+        <text class="s-t" x="427" y="90" text-anchor="middle">INA219</text>
+        <text class="s-s" x="427" y="108" text-anchor="middle">0x40 · shunt</text>
+        <path class="n-pos" d="M502 90 H600 V120 H696"></path>
+        <text class="s-padlbl" x="512" y="84">Vin−</text>
+        <path class="n-pos" d="M378 156 V175"></path>
+        <circle class="jpos" cx="378" cy="175" r="3.6"></circle>
+        <text class="s-s" x="373" y="150" text-anchor="end">VCC</text>
+        <path class="n-gnd" d="M414 156 V595"></path>
+        <circle class="jgnd" cx="414" cy="595" r="3.6"></circle>
+        <text class="s-s" x="420" y="172" text-anchor="start">GND</text>
+        <path class="n-sda" d="M450 156 V250 H696"></path>
+        <text class="s-s" x="456" y="172" text-anchor="start">SDA</text>
+        <path class="n-scl" d="M486 156 V282 H696"></path>
+        <text class="s-s" x="492" y="188" text-anchor="start">SCL</text>
+
+        <!-- panel - to GND -->
+        <path class="n-gnd" d="M174 116 H190 V595"></path>
+        <circle class="jgnd" cx="190" cy="595" r="3.6"></circle>
+
+        <!-- DS18B20 -->
+        <rect class="s-blk" x="70" y="232" width="104" height="72" rx="8"></rect>
+        <text class="s-t" x="122" y="262" text-anchor="middle">DS18B20</text>
+        <text class="s-s" x="122" y="279" text-anchor="middle">water</text>
+        <path class="n-pos" d="M174 248 H210 V175"></path>
+        <circle class="jpos" cx="210" cy="175" r="3.6"></circle>
+        <text class="s-s" x="180" y="244" text-anchor="start">VDD</text>
+        <path class="n-data" d="M174 270 H300 V350 H696"></path>
+        <text class="s-s" x="180" y="266" text-anchor="start">DATA</text>
+        <path class="n-pos" d="M260 270 V240"></path>
+        <circle class="jdat" cx="260" cy="270" r="3.6"></circle>
+        <rect class="s-blk" x="252" y="206" width="16" height="34" rx="3"></rect>
+        <text class="s-s" x="274" y="227" text-anchor="start">4.7k</text>
+        <path class="n-pos" d="M260 206 V175"></path>
+        <circle class="jpos" cx="260" cy="175" r="3.6"></circle>
+        <path class="n-gnd" d="M174 290 H232 V595"></path>
+        <circle class="jgnd" cx="232" cy="595" r="3.6"></circle>
+        <text class="s-s" x="180" y="300" text-anchor="start">GND</text>
+
+        <!-- battery pack -->
+        <rect class="s-blk" x="70" y="384" width="96" height="72" rx="8"></rect>
+        <text class="s-t" x="118" y="414" text-anchor="middle">18650</text>
+        <text class="s-s" x="118" y="431" text-anchor="middle">×2 ∥</text>
+        <text class="s-padlbl" x="170" y="404">+</text>
+        <text class="s-padlbl" x="170" y="448">−</text>
+        <path class="n-pos" d="M166 400 H330"></path>
+        <path class="n-gnd" d="M166 438 H330"></path>
+        <!-- supercap symbol -->
+        <path class="n-pos" d="M205 400 V414"></path>
+        <path class="n-pos" d="M193 414 H217"></path>
+        <path class="n-gnd" d="M193 424 H217"></path>
+        <path class="n-gnd" d="M205 424 V438"></path>
+        <circle class="jpos" cx="205" cy="400" r="3.4"></circle>
+        <circle class="jgnd" cx="205" cy="438" r="3.4"></circle>
+        <text class="s-s" x="224" y="422" text-anchor="start">1 F</text>
+
+        <!-- PCM -->
+        <rect class="s-blk" x="330" y="384" width="120" height="72" rx="8"></rect>
+        <text class="s-t" x="390" y="416" text-anchor="middle">PCM 1S</text>
+        <text class="s-s" x="390" y="433" text-anchor="middle">2.54 V</text>
+        <text class="s-padlbl" x="336" y="404">B+</text>
+        <text class="s-padlbl" x="336" y="452">B−</text>
+        <text class="s-padlbl" x="424" y="404">P+</text>
+        <text class="s-padlbl" x="424" y="452">P−</text>
+        <path class="n-pos" d="M450 400 H600 V505 H696"></path>
+        <path class="n-gnd" d="M450 438 H620 V550 H696"></path>
+
+        <!-- mode strap: pin 11 to GND (bench/DEV position; remove for PROD) -->
+        <path class="n-strap" d="M696 445 H576 V595"></path>
+        <circle class="jstrap" cx="576" cy="595" r="3.6"></circle>
+        <text class="s-s" x="568" y="500" text-anchor="end">strap · GND = DEV</text>
+        <text class="s-s" x="568" y="516" text-anchor="end">remove = PROD</text>
+
+        <!-- reed switch: EN to GND, normally open (field hard reset) -->
+        <path class="n-reed" d="M696 380 H660 V460"></path>
+        <path class="n-reed" d="M660 460 L672 476"></path>
+        <path class="n-reed" d="M660 484 V595"></path>
+        <circle class="jreed" cx="660" cy="595" r="3.6"></circle>
+        <text class="s-s" x="652" y="470" text-anchor="end">reed · NO</text>
+        <text class="s-s" x="652" y="486" text-anchor="end">magnet = hard reset</text>
+      </svg>
+    </div>
+    <p class="sub" style="font-size:14.5px">The Feather's <code>JST −</code> and <code>GND</code> pins are the same net internally — the battery return lands on <code>JST −</code>, every other ground on the <code>GND</code> rail.</p>
+    <div class="callouts" style="margin-top:14px">
+      <div class="note warn">
+        <span class="sev">CAUTION</span>
+        <span class="ttl"><code>Vin−</code> goes to +5&nbsp;V — and that's correct.</span>
+        <span class="txt">On the INA219, <code>Vin+</code> and <code>Vin−</code> both sit on the <b>positive</b> rail with the shunt resistor between them; the "−" marks the <b>load side</b> of the shunt, not a polarity. So <code>Vin−</code> rests at ~5&nbsp;V (the bus voltage the sensor reads) — which is why that lead is drawn red, not as a ground. High-side rule (per Adafruit): <code>Vin+</code> → supply (panel), <code>Vin−</code> → load (the Feather's charge input). Current flows <code>Vin+ → Vin−</code>; reversed, it reads negative.</span>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <!-- POWER UP -->
+  <section>
+    <div class="sec-head"><span class="sec-num">11</span><h2>First power-up</h2></div>
+    <ol class="steps">
+      <li><b>Meter the JST lead</b> one more time — correct polarity, ~3.7&nbsp;V — then plug the pack into the Feather.</li>
+      <li><b>Flash the firmware</b> (default build, INA219 present). On boot it probes <code>0x40</code>, finds the INA219, and comes up as the <b>solar</b> variant.</li>
+      <li><b>Confirm the variant</b> from the uplink: <b>FPort 11</b> (PROD) or <b>21</b> (DEV), 15-byte payload. If it appears on FPort 10/20, the INA219 wasn't detected — recheck the I²C wiring.</li>
+      <li><b>Read the boot fault frame</b> (FPort 1 PROD / 2 DEV, sent once after the first read): <code>ds18_status: "ok"</code>, <code>ds18_rom</code> matching the attached sensor, faults empty, sane battery. It verifies the sensor, probe and pack wiring in one frame — from anywhere, no serial needed.</li>
+      <li><b>See real solar</b> only off USB: strap DEV, unplug USB, run on battery, and read the panel voltage and EWMA over the air. On the bench under USB the INA219 reads the 5&nbsp;V USB rail, not the sun.</li>
+    </ol>
+    
+  </section>
+
+  <footer>
+    <p class="mono">gisebo-05 · solar variant · 1S2P · data FPort 11/21 · fault 1/2 · verbose 3 (DEV) · fw 95232b · updated 2026-08-02</p>
+    <p>Generated from <span class="mono">docs/hardware/README.md</span>. If this guide and the repo disagree, the repo is the source of truth. Values — 2.54&nbsp;V cutoff, 4.7&nbsp;kΩ pull-up, 0x40 — are for the parts specified here; confirm against your own board silkscreens.</p>
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var btn = document.getElementById('themeBtn');
+    var icon = document.getElementById('themeIcon');
+    var lbl = document.getElementById('themeLbl');
+    function apply(mode) {
+      if (mode === 'system') { root.removeAttribute('data-theme'); }
+      else { root.setAttribute('data-theme', mode); }
+      var dark = mode === 'dark' || (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      icon.textContent = dark ? '☾' : '☀';
+      lbl.textContent = mode === 'system' ? 'Auto' : (dark ? 'Dark' : 'Light');
+    }
+    var order = ['system', 'light', 'dark'];
+    var cur = 0;
+    apply('system');
+    btn.addEventListener('click', function () {
+      cur = (cur + 1) % order.length;
+      apply(order[cur]);
+    });
+  })();
+</script>
+
