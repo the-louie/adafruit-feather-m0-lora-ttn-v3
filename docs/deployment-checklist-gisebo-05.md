@@ -4,8 +4,10 @@
 `95232b` verified on the wire, production sensor `ffcf35` healthy (status ok,
 streak 0), pack charged to 4.2 V, reed-switch field reset installed and
 verified (two clean POR boots). The 08-01 attempt was postponed by a faulty
-sensor assembly (hard DQ-GND leak, condemned, replaced). Remaining: strap out
--> FPort 11 + FPort 1 -> mount.
+sensor assembly (hard DQ-GND leak, condemned, replaced). **16:08 CEST: strap cut, PROD CONFIRMED on the wire** -- first data frame on
+FPort 11 and boot fault frame on FPort 1 (ds18 ok, `ffcf35`, faults empty,
+battery 4.15 V, RSSI -53). The reed field reset was also verified THROUGH the
+closed case (16:04, clean POR boot burst). Remaining: mount at the lake.
 
 Taking gisebo-05 from DEV bench duty to PROD at the lake. The order below
 matters: PROD emits no verbose frame, so several things are only verifiable
