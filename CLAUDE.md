@@ -69,7 +69,7 @@ Both share the season machine and the voltage-band hysteresis. The solar variant
 |---|---|---|
 | gisebo-01 | v7 (fixed-keys diagnostic build) | **RETIRED 2026-08-01** — DS18B20 chain failed open (`ds18b20_count: 0`); do not plan around it |
 | gisebo-04 | 8-byte v5, 5 min fixed | test unit in a fridge (cold lithium test) — **do not disturb** |
-| gisebo-05 | v7 solar | **LIVE on the bench (DEV-strapped, FPort 21): flashed 2026-07-27, joined, solar detected, reporting** |
+| gisebo-05 | v7 solar | **fw `95232b`, production sensor `ffcf35`, reed-switch field reset (EN↔GND), pack charged; lake deployment imminent (2026-08-02)** |
 
 gisebo-05 **replaces** gisebo-01, which was retired 2026-08-01 after its sensor chain failed open — the cutover is now unblocked from gisebo-01's side. Decoders are per-device (`decoders/`), one per unit. gisebo-05 was registered in TTN (`telamon-temperature`, EU868) and flashed with the current firmware 2026-07-27; its OTAA keys are derived on boot from the silicon serial, so its TTN DevEUI is the derived one (`86A2A75D253A16AC`), not the app-block DevEUI in the older provisioning note.
 
@@ -144,6 +144,7 @@ arduino-cli compile --fqbn adafruit:samd:adafruit_feather_m0 .   # bare compile 
 # 2026-07-27 with diagnostics + verbose + probe fix: ~72.9 kB (27%)
 # 2026-07-28 with the overnight fixes (DEV clock sampling, TX hardening, INA219 wake): 73548 B (28%)
 # 2026-07-29 items 18-26 + QA + schema 3 (fw_commit): ~74.7 kB (28%)
+# 2026-08-01 items 27-31 + review fixes (fw 95232b): 75752 B (28%)
 ```
 
 **Release images come from `scripts/build.sh`, never from a bare compile.** The verbose frame's schema-3 bytes 34-36 carry the first 6 hex chars of the build commit, injected via `compiler.cpp.extra_flags` (NOT `build.extra_flags`, which the board definition owns). The script runs both test suites, refuses a dirty tree (the hash must name a commit containing exactly the built source), and `--clean`s so a stale cache can't mask the flag. A bare `arduino-cli compile` produces `fw_commit: null` on the wire — the "unofficial build" marker, deliberate so ad-hoc images can't masquerade as releases.

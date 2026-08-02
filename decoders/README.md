@@ -7,8 +7,9 @@ on that date. Changes belong in a new file, deployed deliberately.
 
 | file | device | payload | notes |
 |---|---|---|---|
-| `live-gisebo-01-9byte.js` | gisebo-01 | 9-byte (interval byte present) | reports `version: 5` on a v6 payload |
+| `live-gisebo-01-9byte.js` | gisebo-01 | 9-byte (interval byte present) | reports `version: 5` on a v6 payload; **device retired 2026-08-01 — frozen record** |
 | `live-gisebo-04-8byte.js` | gisebo-04 | 8-byte (no interval byte) | hardcodes a 5-minute interval |
+| `gisebo-05-v7.js` | gisebo-05 | v7: 15-byte solar data + fault schema 1/2 + verbose schema 1/2/3 | **the LIVE production decoder**; uploaded byte-identical to TTN, tested by `test/run_v7.js` |
 
 **There is no application-level default formatter.** Formatters are set
 **per device**, and the two devices run *different* decoders. The per-device

@@ -11,7 +11,7 @@ sense, so it measures the solar harvest and the bus voltage the policy keys on.
   ===========================================================================
 
    ┌──────────────┐
-   │ SOLAR PANEL  │  5 V 0.15 W, vertical, true south
+   │ SOLAR PANEL  │  5 V 0.15 W, south ±10°, 15° tilt
    │   (+)   (−)  │
    └────┬─────┬───┘
         │     │
@@ -65,6 +65,15 @@ sense, so it measures the solar harvest and the bus voltage the policy keys on.
    RFM95 DIO1 (on-board) ──── jumper wire ──────────────► pin 6   [MANDATORY
                                                                    for LoRa]
 
+   Reed switch (normally-open) between EN and GND -- the field hard reset.
+   A magnet held ~3 s against the marked spot on the enclosure closes the reed,
+   grounds EN, and drops the whole 3.3 V rail (MCU, radio, DS18B20, INA219 --
+   the INA219's own POR threshold is 2 V, so only a power cycle truly resets
+   it). Release = cold boot, rejoin, fresh boot fault frame. EN, not RST:
+   grounding RST restarts only the MCU, and a bouncing reed on RST can
+   double-tap the bootloader and strand the sketch off-air. Verify the reed is
+   NO (OL without magnet) and test through the closed enclosure wall.
+
    Strap:  pin 11  floating  = PROD  (FPort 11)
                    tied to GND = DEV  (FPort 21, no deep sleep, no USB conflict)
 ```
@@ -87,6 +96,7 @@ sense, so it measures the solar harvest and the bus voltage the policy keys on.
 | DS18B20 DATA | Feather `A2` | + 4.7 kΩ to 3V |
 | DS18B20 VDD / GND | Feather `3V` / `GND` | |
 | RFM95 `DIO1` | Feather pin `6` | jumper; LMIC needs it |
+| Reed switch (NO) | `EN` ↔ `GND` | magnet = field hard reset; verify OL without magnet |
 | Strap | pin `11` (float=PROD, GND=DEV) | |
 
 ## DS18B20 pinout (TO-92)

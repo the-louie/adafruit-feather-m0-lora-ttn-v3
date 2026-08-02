@@ -1,4 +1,11 @@
-# Deployment checklist: gisebo-05 to the lake (planned 2026-08-01, 10-12 CEST)
+# Deployment checklist: gisebo-05 to the lake (2026-08-02; originally 2026-08-01)
+
+**Status 2026-08-02 morning: everything through section 2 is DONE.** fw
+`95232b` verified on the wire, production sensor `ffcf35` healthy (status ok,
+streak 0), pack charged to 4.2 V, reed-switch field reset installed and
+verified (two clean POR boots). The 08-01 attempt was postponed by a faulty
+sensor assembly (hard DQ-GND leak, condemned, replaced). Remaining: strap out
+-> FPort 11 + FPort 1 -> mount.
 
 Taking gisebo-05 from DEV bench duty to PROD at the lake. The order below
 matters: PROD emits no verbose frame, so several things are only verifiable
@@ -43,6 +50,9 @@ full diagnostic state are visible -- PROD never sends FPort 3.
 ## 4. Physical install
 
 - [ ] DIO1-to-pin-6 jumper intact (the pin map assumes it).
+- [ ] Reed switch (EN-GND, normally-open) tested THROUGH the closed enclosure
+      wall; magnet spot marked outside. A 3 s magnet hold = full power cycle
+      (the field hard reset); every reset costs a rejoin + cold boot.
 - [ ] Antenna connected before power-up.
 - [ ] Panel: face south, up to 10 deg west of south is fine; use the FULL
       15 deg tilt of the holder (docs/panel-placement-guidance.md).
