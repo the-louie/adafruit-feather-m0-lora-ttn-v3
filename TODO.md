@@ -1512,7 +1512,7 @@ has never shown. Watch the first night after deployment of the fix.
 
 ## 27. Water-plausibility check: catch a sensor that reads valid but wrong
 
-**Status:** **IMPLEMENTED 2026-08-01** (`344acab`, wired `241bd2b`) — `sensor_plausibility.h`, fault `0x0100`, thresholds measured from fleet data (water max 0.93 °C/h, fridge 1.79, bench-air 7.4 → threshold 10). Pending flash-verify: no false fire on the balcony; a pulled-into-sun sensor must fire.
+**Status:** **IMPLEMENTED 2026-08-01**, **fire-half FLASH-VERIFIED 2026-08-02 18:26** — the first live alert in the fault bit's history was the deployment itself: the 18:26 wake saw the air→water submersion step (transport air → lake water inside one 30-min interval) and raised `temp_implausible` promptly on FPort 1, edge-triggered and self-clearing, exactly as designed. Remaining flash-verify: the no-false-fire half (quiet days of submerged operation without the bit).
 **Complexity:** Low–Medium
 **Estimated time:** 3–5 h
 **Sprint:** 07
