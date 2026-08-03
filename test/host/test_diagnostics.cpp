@@ -196,17 +196,64 @@ int main() {
     // Same fault flapping every cycle -> never re-sends (already accumulated).
     check(!diagShouldSend(false, f, lastFaults, lastEpoch, 0, false, 86400),
           "no clock: same fault does not re-send (spam-proof)");
+    // Item 32: a reported fault clearing IS news -- exactly one all-clear frame.
+    check(diagShouldSend(false, 0, lastFaults, lastEpoch, 0, false, 86400),
+          "no clock: reported fault clears -> the one all-clear frame sends");
+    diagMarkSent(&lastFaults, &lastEpoch, 0, 0, false);
     check(!diagShouldSend(false, 0, lastFaults, lastEpoch, 0, false, 86400),
-          "no clock: fault clears -> no send");
+          "no clock: all-clear already sent -> silence");
     check(!diagShouldSend(false, f, lastFaults, lastEpoch, 0, false, 86400),
-          "no clock: fault reappears -> still suppressed (bit already reported)");
+          "no clock: fault reappears -> still suppressed (bit stays latched through the clear)");
 
     // A genuinely new bit still gets its one report.
     uint16_t f2 = DIAG_FAULT_LOW_BATTERY;
     check(diagShouldSend(false, f2, lastFaults, lastEpoch, 0, false, 86400),
           "no clock: a NEW distinct fault still reports once");
     diagMarkSent(&lastFaults, &lastEpoch, f2, 0, false);
-    check(lastFaults == (uint16_t)(f | f2), "no clock: bits accumulate across faults");
+    check(lastFaults == (uint16_t)(f | f2),
+          "no clock: bits accumulate across faults, and the edge send drops the clear marker");
+  }
+
+  // -------------------------------------------------------------------------
+  // 5b. Item 32: the all-clear frame -- one per episode, flap-proof.
+  // -------------------------------------------------------------------------
+  {
+    uint16_t lastFaults = 0; uint32_t lastEpoch = 0;
+    const uint32_t MIN = 86400;
+    uint16_t f = DIAG_FAULT_DS18B20_NOT_FOUND;
+
+    // Nothing ever reported -> a clear state is not news.
+    check(!diagShouldSend(false, 0, lastFaults, lastEpoch, 1000, true, MIN),
+          "clear with an empty latch -> no spurious all-clear");
+
+    // Episode: fault -> alert -> clear -> exactly one all-clear.
+    diagMarkSent(&lastFaults, &lastEpoch, f, 1000, true);
+    check(diagShouldSend(false, 0, lastFaults, lastEpoch, 2000, true, MIN),
+          "reported fault clears -> all-clear due");
+    diagMarkSent(&lastFaults, &lastEpoch, 0, 2000, true);
+    check((lastFaults & DIAG_CLEAR_SENT) != 0 && (lastFaults & 0x7FFFu) == f,
+          "clear mark sets the marker and keeps the latched bit");
+    check(!diagShouldSend(false, 0, lastFaults, lastEpoch, 3000, true, MIN),
+          "second clear cycle -> no repeat");
+
+    // Flap: the fault returns after its clear. NOT a new bit -> daily path only.
+    check(!diagShouldSend(false, f, lastFaults, lastEpoch, 2000 + 3600, true, MIN),
+          "returning fault within the day -> suppressed (no flap storm)");
+    check(diagShouldSend(false, f, lastFaults, lastEpoch, 2000 + MIN, true, MIN),
+          "returning fault after a day -> re-alert");
+    diagMarkSent(&lastFaults, &lastEpoch, f, 2000 + MIN, true);
+    check((lastFaults & DIAG_CLEAR_SENT) == 0,
+          "the re-alert re-baselines and drops the clear marker");
+    check(diagShouldSend(false, 0, lastFaults, lastEpoch, 2000 + MIN + 3600, true, MIN),
+          "next clear -> a new all-clear (one per episode, at most two frames/day flapping)");
+
+    // A DIFFERENT fault arriving while clear-marked is still prompt.
+    uint16_t lf2 = (uint16_t)(f | DIAG_CLEAR_SENT); uint32_t le2 = 5000;
+    check(diagShouldSend(false, DIAG_FAULT_LOW_BATTERY, lf2, le2, 6000, true, MIN),
+          "new distinct fault after an all-clear -> prompt");
+    diagMarkSent(&lf2, &le2, DIAG_FAULT_LOW_BATTERY, 6000, true);
+    check((lf2 & DIAG_CLEAR_SENT) == 0 && (lf2 & 0x7FFFu) == (uint16_t)(f | DIAG_FAULT_LOW_BATTERY),
+          "edge send accumulates bits and drops the marker");
   }
 
   // -------------------------------------------------------------------------

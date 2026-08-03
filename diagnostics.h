@@ -13,8 +13,10 @@
 //     the INA219 probe result, the OneWire device count.
 //
 // Duty cycle and battery are load-bearing constraints here, so diagnostics are
-// RARE by construction (see diagShouldSend): one frame per boot, plus one when a
-// new fault appears, rate-limited so a persistent fault cannot spam.
+// RARE by construction (see diagShouldSend): one frame per boot, one when a new
+// fault appears, a persistent fault re-alerted at most daily, and exactly one
+// "all clear" frame (fault_bits 0) when a reported fault set empties -- so the
+// backend can tell "cleared" from "still broken and rate-limited".
 //
 // Pure logic, no Arduino dependencies (only <stdint.h>), so the host tests
 // exercise the same code the firmware runs. The .ino gathers the raw inputs
@@ -52,6 +54,16 @@
 #define DIAG_FAULT_TEMP_IMPLAUSIBLE   0x0100u  // reading is VALID but moved faster than
                                                // water physically can (sensor_plausibility.h)
                                                // -- the sensor is likely out of the water
+
+// NOT a wire bit: a marker kept in the HIGH bit of the persisted
+// diagLastSentFaults latch. Set when the "all clear" frame (fault_bits 0) for
+// the current fault episode has been transmitted, so the episode produces
+// exactly one clear frame. The fault bits themselves stay latched underneath,
+// which is what keeps a flapping fault on the once-per-day re-alert path
+// instead of being "new" (and prompt) after every clear. Cleared whenever a
+// frame carrying nonzero faults is sent. faults itself can never carry this
+// bit, so no wire mask is needed.
+#define DIAG_CLEAR_SENT               0x8000u
 
 // Notably ABSENT: "INA219 missing". One binary serves every board, so a primary
 // unit legitimately finds no INA219 -- that is not a fault, and flagging it would
@@ -212,7 +224,15 @@ inline bool diagShouldSend(bool bootFrame, uint16_t faults,
                            uint32_t nowEpoch, bool clockValid,
                            uint32_t minResendSeconds) {
   if (bootFrame) return true;
-  if (faults == 0) return false;
+  if (faults == 0) {
+    // All clear. If the backend was told about faults and has NOT yet been
+    // told they cleared, send exactly one clear frame (fault_bits 0). Without
+    // it the last fault report stands forever -- the backend cannot tell
+    // "cleared" from "still broken and rate-limited". Episodic and clockless:
+    // the marker bit limits it to one frame per fault episode.
+    return (uint16_t)(lastSentFaults & (uint16_t)~DIAG_CLEAR_SENT) != 0 &&
+           (lastSentFaults & DIAG_CLEAR_SENT) == 0;
+  }
 
   uint16_t unreported = (uint16_t)(faults & ~lastSentFaults);
   if (unreported != 0) return true;   // a distinct new fault -> report promptly
@@ -222,18 +242,29 @@ inline bool diagShouldSend(bool bootFrame, uint16_t faults,
          nowEpoch >= lastSentEpoch + minResendSeconds;
 }
 
-// Record that a diagnostic frame was actually transmitted. Distinguishes an edge
-// send (a new bit appeared -> accumulate the latch, keep the clock running) from
-// a periodic re-alert (no new bit -> re-baseline to the current faults so cleared
-// ones drop). Reads *lastSentFaults BEFORE updating it to tell the two apart.
+// Record that a diagnostic frame was actually transmitted. Three cases:
+// an all-clear (faults 0 -> keep the latched bits, set the clear marker so
+// this episode never repeats the clear frame), an edge send (a new bit
+// appeared -> accumulate the latch, drop the marker, keep the clock running),
+// or a periodic re-alert (no new bit -> re-baseline to the current faults so
+// cleared ones drop; the marker drops with them). The latched bits surviving
+// the all-clear is deliberate: a fault that returns after its clear frame is
+// then a KNOWN fault on the daily path, not a "new" one -- which is what
+// bounds a flapping fault to two frames per day instead of two per flap.
+// Reads *lastSentFaults BEFORE updating it to tell the cases apart.
 inline void diagMarkSent(uint16_t *lastSentFaults, uint32_t *lastSentEpoch,
                          uint16_t faults, uint32_t nowEpoch, bool clockValid) {
+  if (faults == 0) {
+    *lastSentFaults = (uint16_t)(*lastSentFaults | DIAG_CLEAR_SENT);
+    if (clockValid) *lastSentEpoch = nowEpoch;
+    return;
+  }
   bool edge = (uint16_t)(faults & ~*lastSentFaults) != 0;
   if (edge) {
-    *lastSentFaults = (uint16_t)(*lastSentFaults | faults);  // latch reported bits
+    *lastSentFaults = (uint16_t)((*lastSentFaults & (uint16_t)~DIAG_CLEAR_SENT) | faults);
     if (clockValid && *lastSentEpoch == 0) *lastSentEpoch = nowEpoch;  // start the re-alert clock
   } else {
-    *lastSentFaults = faults;              // re-baseline: drop faults that have cleared
+    *lastSentFaults = faults;              // re-baseline: drop cleared faults AND the marker
     if (clockValid) *lastSentEpoch = nowEpoch;
   }
 }

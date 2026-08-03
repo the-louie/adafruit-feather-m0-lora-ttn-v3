@@ -1702,7 +1702,7 @@ and change if the sensor is swapped.
 
 ## 32. Send one "all clear" diagnostic frame when the fault set empties
 
-**Status:** Not started
+**Status:** **IMPLEMENTED 2026-08-03** — `DIAG_CLEAR_SENT` marker bit (0x8000, never on the wire) in the existing persisted latch, no persist bump; host-tested (section 5b + one deliberately inverted legacy assertion); flap-bounded to ≤2 frames/day. Pending flash-verify: unplug/replug test per the verification note.
 **Complexity:** Low
 **Estimated time:** 1–2 h
 **Sprint:** next build
