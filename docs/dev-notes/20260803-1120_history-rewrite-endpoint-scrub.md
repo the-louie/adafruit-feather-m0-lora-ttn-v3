@@ -13,8 +13,11 @@ The `v5-firmware` tag predates the string and was verified clean unrewritten.
 This project stamps the build commit into firmware (`fw_commit`, verbose
 schema 3) and names release images by it. Rewriting history CHANGES every
 commit id, so ids recorded on the wire, in captures, and in older docs no
-longer exist under their old names. The complete old->new map is preserved in
-`docs/history-rewrite-20260803-commit-map.txt`. The two ids that matter:
+longer exist under their old names. The complete old->new map is kept OFFLINE alongside the pre-rewrite backup
+bundle -- deliberately NOT in this repo: the old full shas in it are exactly
+the handles that can still fetch orphaned pre-rewrite objects from a remote
+until garbage collection. The two ids that matter (short form, which remotes
+refuse to resolve for orphaned objects):
 
 | where it lives | old (on the wire / in filenames) | new (in this history) |
 |---|---|---|
