@@ -2,7 +2,7 @@
 
 **Status: specifications, not deployed.** These need influx/grafana access the firmware work does not have. Each is written to be dropped in directly. Uplinks are the only instrument this fleet has, so every silent failure mode below needs a backend watcher — the firmware cannot alert on its own being wrong.
 
-The telegraf schema is `telegraf-home-sync` → `telegraf.example.com/telegraf`, influx org `myhouse`, bucket `home_assistant`, tagged by `device_id`.
+The telegraf schema is `telegraf-home-sync` → `https://telegraf.example.com/telegraf` (a reverse-proxied telegraf `http_listener_v2`), influx org `myhouse`, bucket `home_assistant`, tagged by `device_id`.
 
 ---
 
